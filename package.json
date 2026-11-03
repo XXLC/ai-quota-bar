@@ -1,0 +1,154 @@
+{
+  "name": "ai-quota-bar",
+  "displayName": "%extension.name%",
+  "description": "%extension.description%",
+  "version": "0.1.1",
+  "publisher": "XXLC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/XXLC/ai-quota-bar"
+  },
+  "homepage": "https://github.com/XXLC/ai-quota-bar",
+  "bugs": {
+    "url": "https://github.com/XXLC/ai-quota-bar/issues"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "claude",
+    "codex",
+    "antigravity",
+    "quota",
+    "statusbar"
+  ],
+  "license": "MIT",
+  "main": "./src/extension.js",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "aiQuota.refresh",
+        "title": "%command.refresh%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "aiQuota.showDetails",
+        "title": "%command.showDetails%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "aiQuota.showLog",
+        "title": "%command.showLog%",
+        "category": "%command.category%"
+      },
+      {
+        "command": "aiQuota.selectProviders",
+        "title": "%command.selectProviders%",
+        "category": "%command.category%"
+      }
+    ],
+    "configuration": {
+      "title": "%configuration.title%",
+      "properties": {
+        "aiQuota.agyPath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%configuration.agyPath%",
+          "order": 4
+        },
+        "aiQuota.refreshInterval": {
+          "type": "number",
+          "default": 300,
+          "minimum": 60,
+          "maximum": 3600,
+          "description": "%configuration.refreshInterval%",
+          "order": 5
+        },
+        "aiQuota.timeout": {
+          "type": "number",
+          "default": 45,
+          "minimum": 5,
+          "maximum": 300,
+          "description": "%configuration.timeout%",
+          "order": 6
+        },
+        "aiQuota.warningThreshold": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "%configuration.warningThreshold%",
+          "order": 7
+        },
+        "aiQuota.criticalThreshold": {
+          "type": "number",
+          "default": 10,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "%configuration.criticalThreshold%",
+          "order": 8
+        },
+        "aiQuota.notificationEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "%configuration.notificationEnabled%",
+          "order": 9
+        },
+        "aiQuota.providers.claude.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "%configuration.providers.claude.enabled%",
+          "order": 1
+        },
+        "aiQuota.providers.codex.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "%configuration.providers.codex.enabled%",
+          "order": 2
+        },
+        "aiQuota.providers.agy.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "%configuration.providers.agy.enabled%",
+          "order": 3
+        },
+        "aiQuota.claudeConfigDir": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%configuration.claudeConfigDir%",
+          "order": 10
+        },
+        "aiQuota.codexHome": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "%configuration.codexHome%",
+          "order": 11
+        }
+      }
+    }
+  }
+}

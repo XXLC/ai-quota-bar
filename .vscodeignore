@@ -1,0 +1,8 @@
+_work/**
+docs/**
+test/**
+.git/**
+.gitignore
+.gitattributes
+*.vsix
+README.vi.md

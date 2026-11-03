@@ -1,0 +1,7 @@
+node_modules/
+*.vsix
+_work/codex-tmp/
+_work/
+docs/DAC_TA.md
+docs/README_DU_THAO.md
+.vscode-test/

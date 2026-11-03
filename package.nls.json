@@ -1,0 +1,21 @@
+{
+  "extension.name": "AI Quota Bar",
+  "extension.description": "Show Claude Code, Codex and Antigravity quota in the status bar.",
+  "command.refresh": "Refresh quota",
+  "command.category": "AI Quota Bar",
+  "command.showDetails": "Show details",
+  "command.showLog": "Open log",
+  "command.selectProviders": "Choose providers to show",
+  "configuration.title": "AI Quota Bar",
+  "configuration.agyPath": "Absolute path to agy (leave empty to auto-detect); Windows supports only .exe files.",
+  "configuration.refreshInterval": "Refresh interval in seconds.",
+  "configuration.timeout": "Timeout in seconds.",
+  "configuration.warningThreshold": "Warning threshold for the remaining percentage.",
+  "configuration.criticalThreshold": "Critical threshold for the remaining percentage.",
+  "configuration.notificationEnabled": "Notify when quota decreases to a worse level or recovers.",
+  "configuration.providers.claude.enabled": "Show Claude Code quota in the status bar. Turn off if you no longer use it; when disabled, the extension does not read Claude Code credentials or call its API.",
+  "configuration.providers.codex.enabled": "Show Codex quota in the status bar. Turn off if you no longer use it; when disabled, the extension does not read Codex credentials or call its API.",
+  "configuration.providers.agy.enabled": "Show Antigravity quota in the status bar. Turn off if you no longer use it; when disabled, the extension does not run agy.",
+  "configuration.claudeConfigDir": "Claude configuration directory (empty: CLAUDE_CONFIG_DIR or ~/.claude).",
+  "configuration.codexHome": "Codex configuration directory (empty: CODEX_HOME or ~/.codex)."
+}

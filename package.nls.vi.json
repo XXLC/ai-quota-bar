@@ -1,0 +1,21 @@
+{
+  "extension.name": "AI Quota Bar",
+  "extension.description": "Hiển thị quota Claude Code, Codex và Antigravity trên thanh trạng thái.",
+  "command.refresh": "Làm mới quota",
+  "command.category": "AI Quota Bar",
+  "command.showDetails": "Xem chi tiết",
+  "command.showLog": "Mở nhật ký",
+  "command.selectProviders": "Chọn nhà cung cấp hiển thị",
+  "configuration.title": "AI Quota Bar",
+  "configuration.agyPath": "Đường dẫn tuyệt đối đến agy (để trống để tự dò); Windows chỉ hỗ trợ tệp .exe.",
+  "configuration.refreshInterval": "Khoảng làm mới, tính bằng giây.",
+  "configuration.timeout": "Thời gian chờ, tính bằng giây.",
+  "configuration.warningThreshold": "Ngưỡng cảnh báo phần trăm còn lại.",
+  "configuration.criticalThreshold": "Ngưỡng nghiêm trọng phần trăm còn lại.",
+  "configuration.notificationEnabled": "Thông báo khi quota xấu đi hoặc hồi phục.",
+  "configuration.providers.claude.enabled": "Hiện quota Claude Code trên thanh trạng thái. Tắt nếu không còn dùng; khi tắt, tiện ích không đọc thông tin đăng nhập của Claude Code và không gọi API.",
+  "configuration.providers.codex.enabled": "Hiện quota Codex trên thanh trạng thái. Tắt nếu không còn dùng; khi tắt, tiện ích không đọc thông tin đăng nhập của Codex và không gọi API.",
+  "configuration.providers.agy.enabled": "Hiện quota Antigravity trên thanh trạng thái. Tắt nếu không còn dùng; khi tắt, tiện ích không chạy agy.",
+  "configuration.claudeConfigDir": "Thư mục cấu hình Claude (rỗng: CLAUDE_CONFIG_DIR hoặc ~/.claude).",
+  "configuration.codexHome": "Thư mục cấu hình Codex (rỗng: CODEX_HOME hoặc ~/.codex)."
+}
