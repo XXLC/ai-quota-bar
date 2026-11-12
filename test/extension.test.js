@@ -11,7 +11,7 @@ test('Bộ nối VS Code đăng ký lệnh, áp dụng cấu hình, tooltip an t
   StatusBarAlignment:{Right:2},QuickPickItemKind:{Separator:-1},
   ThemeColor:class {constructor(id){this.id=id;}},
   MarkdownString:class {constructor(value){this.value=value;}},
-  workspace:{getConfiguration:()=>({get:key=>key==='agyPath'?configPath:key==='providers.claude.enabled'||key==='providers.codex.enabled'?false:undefined}),onDidChangeConfiguration:cb=>{changed=cb;return {dispose(){}};}},
+  workspace:{getConfiguration:()=>({get:key=>key==='agyPath'?configPath:key==='providers.claude.enabled'||key==='providers.codex.enabled'||key==='providers.deepseek.enabled'?false:undefined}),onDidChangeConfiguration:cb=>{changed=cb;return {dispose(){}};}},
   commands:{registerCommand:(name,cb)=>{registered.set(name,cb);return {dispose(){}};},executeCommand:async()=>{}},
   window:{createOutputChannel:()=>({info:s=>logs.push(s),warn:s=>logs.push(s),error:s=>logs.push(s),show(){},dispose(){}}),createStatusBarItem:()=>bar,showErrorMessage:async s=>messages.push(s),showWarningMessage:async()=>{},showInformationMessage:async()=>{},showQuickPick:async choices=>{items.push(...choices);}}
  };

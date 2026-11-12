@@ -2,7 +2,7 @@
   "name": "ai-quota-bar",
   "displayName": "%extension.name%",
   "description": "%extension.description%",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "publisher": "XXLC",
   "repository": {
     "type": "git",
@@ -73,7 +73,7 @@
           "default": "",
           "scope": "machine",
           "description": "%configuration.agyPath%",
-          "order": 4
+          "order": 5
         },
         "aiQuota.refreshInterval": {
           "type": "number",
@@ -81,7 +81,7 @@
           "minimum": 60,
           "maximum": 3600,
           "description": "%configuration.refreshInterval%",
-          "order": 5
+          "order": 6
         },
         "aiQuota.timeout": {
           "type": "number",
@@ -89,7 +89,7 @@
           "minimum": 5,
           "maximum": 300,
           "description": "%configuration.timeout%",
-          "order": 6
+          "order": 7
         },
         "aiQuota.warningThreshold": {
           "type": "number",
@@ -97,7 +97,7 @@
           "minimum": 0,
           "maximum": 100,
           "description": "%configuration.warningThreshold%",
-          "order": 7
+          "order": 8
         },
         "aiQuota.criticalThreshold": {
           "type": "number",
@@ -105,13 +105,21 @@
           "minimum": 0,
           "maximum": 100,
           "description": "%configuration.criticalThreshold%",
-          "order": 8
+          "order": 9
+        },
+        "aiQuota.deepseekWarningThreshold": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 10000,
+          "description": "%configuration.deepseekWarningThreshold%",
+          "order": 10
         },
         "aiQuota.notificationEnabled": {
           "type": "boolean",
           "default": true,
           "description": "%configuration.notificationEnabled%",
-          "order": 9
+          "order": 11
         },
         "aiQuota.providers.claude.enabled": {
           "type": "boolean",
@@ -134,19 +142,26 @@
           "markdownDescription": "%configuration.providers.agy.enabled%",
           "order": 3
         },
+        "aiQuota.providers.deepseek.enabled": {
+          "type": "boolean",
+          "default": true,
+          "scope": "application",
+          "markdownDescription": "%configuration.providers.deepseek.enabled%",
+          "order": 4
+        },
         "aiQuota.claudeConfigDir": {
           "type": "string",
           "default": "",
           "scope": "machine",
           "description": "%configuration.claudeConfigDir%",
-          "order": 10
+          "order": 12
         },
         "aiQuota.codexHome": {
           "type": "string",
           "default": "",
           "scope": "machine",
           "description": "%configuration.codexHome%",
-          "order": 11
+          "order": 13
         }
       }
     }

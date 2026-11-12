@@ -35,7 +35,7 @@ function sanitize(text, maxLen = 120) {
     .replace(/\b(?:Bearer|Basic)\s+\S+/gi, t('common.redacted'))
     .replace(/([?&](?:token|access_token|refresh_token|id_token|key|apikey|api_key|secret|client_secret|password|auth|authorization|code)=)[^&#\s]*/gi,
       '$1' + t('common.redacted'))
-    .replace(/(?:\beyJ|ya29\.)[A-Za-z0-9_\-./+=]*/g, t('common.redacted'))
+    .replace(/(?:\beyJ|ya29\.|\bsk-)[A-Za-z0-9_\-./+=]*/g, t('common.redacted'))
     .replace(/[A-Za-z0-9_\-./+=]{24,}/g, t('common.redacted'));
   return [...clean].length > maxLen ? takePoints(clean, Math.max(0, maxLen - 3)) + '...' : clean;
 }

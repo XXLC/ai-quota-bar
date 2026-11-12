@@ -138,7 +138,7 @@ test('Manifest: mọi tham chiếu có đủ hai bản dịch và tiếng Việt
     assert.ok(Object.hasOwn(vietnamese, key), key);
   }
   assert.equal(vietnamese['extension.name'], 'AI Quota Bar');
-  assert.equal(vietnamese['extension.description'], 'Hiển thị quota Claude Code, Codex và Antigravity trên thanh trạng thái.');
+  assert.equal(vietnamese['extension.description'], 'Hiển thị quota Claude Code, Codex, Antigravity và DeepSeek trên thanh trạng thái.');
   for (const [key, value] of Object.entries(vietnamese)) {
     assert.equal(typeof value, 'string', key);
     assert.ok(value.length > 0, key);

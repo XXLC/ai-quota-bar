@@ -7,9 +7,22 @@ const MAX_BYTES = 256 * 1024;
 const USER_AGENT = 'ai-quota-bar/' + require('../../package.json').version;
 const endpoints = Object.freeze({
   claude: 'https://api.anthropic.com/api/oauth/usage',
-  codex: 'https://chatgpt.com/backend-api/wham/usage'
+  codex: 'https://chatgpt.com/backend-api/wham/usage',
+  deepseek: 'https://api.deepseek.com/user/balance'
 });
 const failure = (type, key, ...args) => ({error: {type, message: sanitize(t(key, ...args), 200)}});
+function formatProviderLog(id, result) {
+  if (id === 'deepseek') {
+    if (result.error) {
+      const code = result.statusCode || result.error.code;
+      const type = code ? result.error.type + ' (' + code + ')' : result.error.type;
+      return t('log.deepseekFailure', type, result.error.message, result.keySource || 'none');
+    }
+    return t('log.deepseekSuccess', result.buckets.length, result.keySource || 'none');
+  }
+  return result.error ? t('log.failure', result.error.type, result.error.message) :
+    t('log.providerSuccess', result.buckets.length);
+}
 function retryAfter(value, now) {
   const seconds = /^\d+(?:\.\d+)?$/.test(String(value ?? '').trim()) ? Number(value) :
     (Date.parse(value) - now) / 1000;
@@ -110,29 +123,52 @@ function createHttpProvider(id, name, parse, injected = {}) {
     controllers.add(controller);
     const started = deps.now();
     let timer;
+    let keySource = null;
     const aborted = new Promise(resolve => {
       controller.signal.addEventListener('abort', () => resolve(disposed ? {cancelled: true} :
-        failure('timeout', 'error.timeout', values.timeout)), {once: true});
+        {...(id === 'deepseek' ? {keySource: keySource || 'none'} : {}), ...failure('timeout', 'error.timeout', values.timeout)}), {once: true});
       timer = deps.setTimer(() => controller.abort(), values.timeout * 1000);
     });
     const work = async () => {
-      let auth;
-      try {
-        const directory = id === 'claude' ? values.claudeConfigDir?.trim() || deps.env.CLAUDE_CONFIG_DIR || path.join(deps.homedir(), '.claude') :
-          values.codexHome?.trim() || deps.env.CODEX_HOME || path.join(deps.homedir(), '.codex');
-        const text = await deps.fs.readFile(path.join(directory, id === 'claude' ? '.credentials.json' : 'auth.json'), 'utf8');
-        auth = JSON.parse(text);
-      } catch { return failure('auth', 'error.auth', id); }
+      let auth, token, expiresAt = null;
+      if (id === 'deepseek') {
+        const envKey = Object.keys(deps.env || {}).find(key => key.toUpperCase() === 'DEEPSEEK_API_KEY');
+        const envToken = typeof deps.env?.[envKey] === 'string' ? deps.env[envKey].trim() : '';
+        if (envToken) {
+          token = envToken;
+          keySource = 'env';
+        } else {
+          keySource = 'none';
+          try {
+            const text = await deps.fs.readFile(path.join(deps.homedir(), '.codewhale', 'secrets', 'secrets.json'), 'utf8');
+            const entries = JSON.parse(text)?.entries;
+            if (entries && typeof entries === 'object' && !Array.isArray(entries)) {
+              const direct = typeof entries.deepseek === 'string' ? entries.deepseek.trim() : '';
+              token = direct;
+              if (token) keySource = 'codewhale';
+            }
+          } catch { return {keySource: 'none', statusCode: 'missing_key', ...failure('no-key', 'error.deepseekAuth')}; }
+        }
+      } else {
+        try {
+          const directory = id === 'claude' ? values.claudeConfigDir?.trim() || deps.env.CLAUDE_CONFIG_DIR || path.join(deps.homedir(), '.claude') :
+            values.codexHome?.trim() || deps.env.CODEX_HOME || path.join(deps.homedir(), '.codex');
+          const text = await deps.fs.readFile(path.join(directory, id === 'claude' ? '.credentials.json' : 'auth.json'), 'utf8');
+          auth = JSON.parse(text);
+        } catch { return failure('auth', 'error.auth', id); }
+        token = id === 'claude' ? auth?.claudeAiOauth?.accessToken : auth?.tokens?.access_token;
+        expiresAt = id === 'claude' ? auth?.claudeAiOauth?.expiresAt : null;
+      }
       if (controller.signal.aborted) return {cancelled: true};
-      const token = id === 'claude' ? auth?.claudeAiOauth?.accessToken : auth?.tokens?.access_token;
-      const expiresAt = id === 'claude' ? auth?.claudeAiOauth?.expiresAt : null;
+      const authFailure = statusCode => id === 'deepseek' ?
+        {keySource, statusCode: statusCode || 'missing_key', ...failure(statusCode ? 'auth' : 'no-key', 'error.deepseekAuth')} : failure('auth', 'error.auth', id);
       if (typeof token !== 'string' || !token.trim() || /[\s\x00-\x1f\x7f]/.test(token) ||
-          Number.isFinite(expiresAt) && expiresAt <= deps.now() || expired(token, deps.now())) {
-        return failure('auth', 'error.auth', id);
+          Number.isFinite(expiresAt) && expiresAt <= deps.now() || id !== 'deepseek' && expired(token, deps.now())) {
+        return authFailure();
       }
       const headers = {Authorization: 'Bearer ' + token, Accept: 'application/json', 'User-Agent': USER_AGENT};
       if (id === 'claude') headers['anthropic-beta'] = 'oauth-2025-04-20';
-      else if (typeof auth.tokens.account_id === 'string' && auth.tokens.account_id && !/[\r\n\x00-\x1f\x7f]/.test(auth.tokens.account_id)) {
+      else if (id === 'codex' && typeof auth.tokens.account_id === 'string' && auth.tokens.account_id && !/[\r\n\x00-\x1f\x7f]/.test(auth.tokens.account_id)) {
         headers['chatgpt-account-id'] = auth.tokens.account_id;
       }
       try {
@@ -157,24 +193,35 @@ function createHttpProvider(id, name, parse, injected = {}) {
         if (controller.signal.aborted) return {cancelled: true};
         if (result.status === 401 || result.status === 403 && (id === 'claude' ||
             /^application\/(?:[\w.-]+\+)?json\s*(?:;|$)/i.test(response.headers?.get('content-type') || ''))) {
-          return failure('auth', 'error.auth', id);
+          return authFailure(result.status);
         }
-        if (result.status === 429) return {...failure('http', 'error.rateLimit'),
+        if (id === 'deepseek' && result.status === 402) {
+          return {keySource, statusCode: 402, error: {...failure('http', 'error.insufficientBalance').error, code: 402}};
+        }
+        const meta = id === 'deepseek' ? {keySource, statusCode: result.status} : {};
+        if (result.status === 429) return {...meta, ...failure('http', 'error.rateLimit'),
           retryAfterMs: retryAfter(result.retry, deps.now())};
-        if (result.status < 200 || result.status >= 300) return failure('http', 'error.http', result.status);
+        if (result.status < 200 || result.status >= 300) return {...meta, ...failure('http', 'error.http', result.status)};
         let data;
         try { data = JSON.parse(result.body); }
-        catch { return failure('http', 'error.invalidJson'); }
+        catch { return {...(id === 'deepseek' ? {keySource} : {}), ...failure('http', 'error.invalidJson')}; }
         const buckets = parse(data, deps.now());
-        return buckets.length ? {buckets} : failure('http', 'error.noQuota');
+        return buckets.length ? (id === 'deepseek' ? {buckets, keySource} : {buckets}) :
+          {...(id === 'deepseek' ? {keySource} : {}), ...failure('http', 'error.noQuota')};
       } catch (error) {
-        if (error?.message === 'timeout') return failure('timeout', 'error.timeout', values.timeout);
-        return failure(error?.message === 'size' ? 'http' : 'network',
-          error?.message === 'size' ? 'error.responseSize' : 'error.network');
+        const meta = id === 'deepseek' ? {keySource: keySource || 'none'} : {};
+        if (error?.message === 'timeout') return {...meta, ...failure('timeout', 'error.timeout', values.timeout)};
+        return {...meta, ...failure(error?.message === 'size' ? 'http' : 'network',
+          error?.message === 'size' ? 'error.responseSize' : 'error.network')};
       }
     };
-    try { return await Promise.race([work(), aborted]); }
-    finally {
+    try {
+      const outcome = await Promise.race([work(), aborted]);
+      if (!outcome?.cancelled && typeof injected.log === 'function') {
+        try { injected.log(formatProviderLog(id, outcome)); } catch { /* Kênh nhật ký có thể đã đóng. */ }
+      }
+      return outcome;
+    } finally {
       deps.clearTimer(timer);
       controllers.delete(controller);
       controller.abort();
@@ -192,4 +239,4 @@ function quotaBucket(provider, label, windowKey, windowLabel, used, resetAt) {
     fraction: remaining / 100, percent: Math.floor(remaining),
     resetAt: Number.isFinite(resetAt) && Math.abs(resetAt) <= 8640000000000000 ? resetAt : null};
 }
-module.exports = {createHttpProvider, quotaBucket, retryAfter, MAX_BYTES};
+module.exports = {createHttpProvider, quotaBucket, retryAfter, MAX_BYTES, formatProviderLog};

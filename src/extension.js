@@ -5,8 +5,15 @@ const fs = require('node:fs');
 const {createStore, emptyState, localResult} = require('./state');
 const {configuration, retryDeadline} = require('./thresholds');
 const {display, notification, sanitize, clock} = require('./format');
-const providers = [require('./providers/claude'), require('./providers/codex'), require('./providers/agy')];
-const providerName = id => t(id === 'claude' ? 'provider.claude' : id === 'codex' ? 'provider.codex' : 'provider.agy');
+const {formatProviderLog} = require('./providers/http');
+const providers = [
+  require('./providers/claude'),
+  require('./providers/codex'),
+  require('./providers/agy'),
+  require('./providers/deepseek')
+];
+const providerName = id => t(id === 'claude' ? 'provider.claude' : id === 'codex' ? 'provider.codex' :
+  id === 'deepseek' ? 'provider.deepseek' : 'provider.agy');
 let shutdown = () => Promise.resolve();
 function createController(provider, bar, store, getConfig, log) {
   let state = {...emptyState(), runningSince: Date.now()};
@@ -19,6 +26,8 @@ function createController(provider, bar, store, getConfig, log) {
   let unpersistedRetryAt = null;
   function render() {
     if (closed) return;
+    // Không có khóa DeepSeek: ẩn mục thay vì báo lỗi (khóa bị từ chối 401 vẫn hiện lỗi).
+    if (state.error?.type === 'no-key') { bar.hide(); return; }
     const model = display(state, Date.now(), getConfig(), provider);
     bar.text = model.text;
     bar.accessibilityInformation = {label: model.accessibilityLabel};
@@ -100,8 +109,8 @@ function createController(provider, bar, store, getConfig, log) {
           notify(completed.notification);
         }
         if (!closed && provider.id !== 'agy') {
-          if (result.error) log.warn(t('log.failure', result.error.type, result.error.message));
-          else log.info(t('log.providerSuccess', result.buckets.length));
+          if (result.error) log.warn(formatProviderLog(provider.id, result));
+          else log.info(formatProviderLog(provider.id, result));
         }
         if (result.error?.type === 'not-found' && !notFoundShown && !closed) {
           notFoundShown = true;
@@ -127,6 +136,7 @@ function createController(provider, bar, store, getConfig, log) {
   return {
     render, refresh,
     model: () => display(state, Date.now(), getConfig(), provider),
+    hidden: () => state.error?.type === 'no-key',
     changed(pathChanged) {
       render();
       if (!pathChanged) return;
@@ -150,8 +160,8 @@ function activate(context) {
   function readConfig() {
     const values = vscode.workspace.getConfiguration('aiQuota');
     const keys = ['agyPath', 'claudeConfigDir', 'codexHome', 'refreshInterval', 'timeout',
-      'warningThreshold', 'criticalThreshold', 'notificationEnabled',
-      'providers.claude.enabled', 'providers.codex.enabled', 'providers.agy.enabled'];
+      'warningThreshold', 'criticalThreshold', 'deepseekWarningThreshold', 'notificationEnabled',
+      'providers.claude.enabled', 'providers.codex.enabled', 'providers.agy.enabled', 'providers.deepseek.enabled'];
     config = configuration(Object.fromEntries(keys.map(key => [key, values.get(key)])));
   }
   function stop(controller) {
@@ -167,16 +177,16 @@ function activate(context) {
         controllers.delete(id);
         return;
       }
-      const pathKey = id === 'claude' ? 'claudeConfigDir' : id === 'codex' ? 'codexHome' : 'agyPath';
+      const pathKey = id === 'claude' ? 'claudeConfigDir' : id === 'codex' ? 'codexHome' : id === 'agy' ? 'agyPath' : null;
       if (controllers.has(id)) {
-        controllers.get(id).changed(previous[pathKey] !== config[pathKey]);
+        controllers.get(id).changed(Boolean(pathKey && previous[pathKey] !== config[pathKey]));
         return;
       }
       const name = providerName(id);
       const log = Object.fromEntries(['info', 'warn', 'error'].map(level => [level, message => {
         if (!closed) output[level](t('log.provider', name, sanitize(message, 1000)));
       }]));
-      const provider = {...definition.createProvider({log: message => log.info(message)}),
+      const provider = {...definition.createProvider(id === 'agy' ? {log: message => log.info(message)} : {}),
         name, label: id === 'claude' ? 'Claude' : name};
       const bar = vscode.window.createStatusBarItem('aiQuota.' + id, vscode.StatusBarAlignment.Right, 100 - index);
       bar.name = name;
@@ -192,7 +202,8 @@ function activate(context) {
   async function selectProviders() {
     const items = providers.map(({id}) => ({
       id, label: providerName(id),
-      description: t(id === 'claude' ? 'picker.source.claude' : id === 'codex' ? 'picker.source.codex' : 'picker.source.agy'),
+      description: t(id === 'claude' ? 'picker.source.claude' : id === 'codex' ? 'picker.source.codex' :
+        id === 'deepseek' ? 'picker.source.deepseek' : 'picker.source.agy'),
       picked: config['providers.' + id + '.enabled'] !== false
     }));
     const selected = await vscode.window.showQuickPick(items, {
@@ -224,7 +235,7 @@ function activate(context) {
     const items = [];
     for (const definition of providers) {
       const controller = controllers.get(definition.id);
-      if (!controller) continue;
+      if (!controller || controller.hidden?.()) continue;
       const name = providerName(definition.id);
       const model = controller.model();
       items.push({label: name, kind: vscode.QuickPickItemKind.Separator});

@@ -2,27 +2,28 @@
 
 # ai-quota-bar (AI Quota Bar)
 
-Tiện ích VS Code hiện quota còn lại của **Claude Code**, **Codex** và **Antigravity (`agy`)** trên thanh trạng thái. Mỗi nhà cung cấp (provider) đang bật có một mục riêng trên thanh trạng thái với mã định danh (ID) riêng (`aiQuota.claude`, `aiQuota.codex`, `aiQuota.agy`), và cả ba đều không cần mở một IDE riêng hay phát sinh lượt gọi model.
+Tiện ích VS Code hiện quota còn lại của **Claude Code**, **Codex**, **Antigravity (`agy`)** và số dư API của **DeepSeek** trên thanh trạng thái. Mỗi nhà cung cấp (provider) đang bật có một mục riêng trên thanh trạng thái với mã định danh (ID) riêng (`aiQuota.claude`, `aiQuota.codex`, `aiQuota.agy`, `aiQuota.deepseek`), và cả bốn đều không cần mở một IDE riêng hay phát sinh lượt gọi model.
 
 Hình dung bằng chữ góc phải thanh trạng thái (chưa có tệp ảnh chụp màn hình thật):
 
 ```
-+------------------+  +-----------------+  +-----------------------------------------+
-| Claude 84% | 29% |  | Codex 76% | 96% |  | Gemini 91% | 60% · Claude/GPT 80% | 55% |
-+------------------+  +-----------------+  +-----------------------------------------+
++------------------+  +-----------------+  +-----------------------------------------+  +-----------------+
+| Claude 84% | 29% |  | Codex 76% | 96% |  | Gemini 91% | 60% · Claude/GPT 80% | 55% |  | DeepSeek $10.00 |
++------------------+  +-----------------+  +-----------------------------------------+  +-----------------+
 ```
 
 ## 1. Mục đích
 
-Tiện ích hiện phần trăm quota còn lại của các công cụ lập trình AI trên thanh trạng thái VS Code, đổi màu nền và bật thông báo khi một giới hạn xuống mức cảnh báo hoặc nghiêm trọng, và cho biết thời điểm từng giới hạn được đặt lại (reset).
+Tiện ích hiện phần trăm quota còn lại (hoặc số dư tài khoản với DeepSeek) của các công cụ lập trình AI trên thanh trạng thái VS Code, đổi màu nền và bật thông báo khi một giới hạn hoặc số dư xuống mức cảnh báo hoặc nghiêm trọng, và cho biết thời điểm từng giới hạn theo khung thời gian được đặt lại (reset).
 
-Tiện ích gộp ba nguồn dữ liệu trong một gói duy nhất:
+Tiện ích gộp bốn nguồn dữ liệu trong một gói duy nhất:
 
-| Nguồn (Provider) | Nguồn dữ liệu | Nhóm hiển thị | Cửa sổ giới hạn thường gặp |
+| Nguồn (Provider) | Nguồn dữ liệu | Nhóm hiển thị | Cửa sổ giới hạn / Giá trị thường gặp |
 |---|---|---|---|
 | Claude Code (`claude`) | API OAuth usage của Anthropic (`https://api.anthropic.com/api/oauth/usage`) dùng token mà Claude Code đã lưu | `Claude` | 5 giờ (`session` / `five_hour`), Tuần (`weekly_all` / `seven_day`), kèm các giới hạn tuần theo model từ mảng `limits` (lấy nhãn model từ API) hoặc trường cũ `seven_day_opus` / `seven_day_sonnet` |
 | Codex (`codex`) | API backend usage của ChatGPT (`https://chatgpt.com/backend-api/wham/usage`) dùng token mà Codex đã lưu | `Codex` | 5 giờ (`18000` giây), Tuần (`604800` giây), hoặc khung thời gian khác do API trả về |
 | Antigravity (`agy`) | Lệnh CLI `agy --output-format json -p "/usage"` | `Gemini`, `Claude/GPT` | 5 giờ, Tuần |
+| DeepSeek (`deepseek`) | API số dư người dùng của DeepSeek (`https://api.deepseek.com/user/balance`) dùng `DEEPSEEK_API_KEY` hoặc `~/.codewhale/secrets/secrets.json` | `DeepSeek` | Số dư tiền theo từng loại tiền tệ (`USD`, `CNY`, ... gồm tổng số dư, số dư đã nạp và số dư được tặng; không có phần trăm theo khung thời gian hay thời điểm reset) |
 
 Gỡ trùng với các tiện ích quota khác:
 
@@ -40,7 +41,7 @@ Vì sao dùng nguồn này: Sau khi bạn đăng nhập, Claude Code lưu sẵn 
 Mỗi lần làm mới Claude, tiện ích:
 
 1. Đọc tệp `<CLAUDE_CONFIG_DIR hoặc ~/.claude>/.credentials.json` (hoặc thư mục cấu hình trong `aiQuota.claudeConfigDir`), lấy `claudeAiOauth.accessToken` và kiểm tra `claudeAiOauth.expiresAt` (cùng trường `exp` của JWT nếu có). Nếu tệp hoặc token bị thiếu hay đã hết hạn, tiện ích báo lỗi `auth` ngay mà không gọi mạng.
-2. Gửi `GET https://api.anthropic.com/api/oauth/usage` với header `Authorization: Bearer <accessToken>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.1.1` và `anthropic-beta: oauth-2025-04-20`.
+2. Gửi `GET https://api.anthropic.com/api/oauth/usage` với header `Authorization: Bearer <accessToken>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.0` và `anthropic-beta: oauth-2025-04-20`.
 3. Dùng `fetch` dựng sẵn của Node trước. Chỉ khi `fetch` nhận mã HTTP `403` có nội dung phản hồi chứa `"Request not allowed"` (máy chủ biên của Anthropic từ chối dấu vân tay TLS ClientHello của Node), tiện ích mới chuyển sang dự phòng một lần bằng chương trình `curl` của hệ thống (`<%SystemRoot% hoặc C:\Windows>\System32\curl.exe` trên Windows, `curl` trên macOS/Linux) với `-q --config -`, truyền địa chỉ và header qua `stdin` để token không bao giờ xuất hiện trong dòng lệnh của tiến trình.
 4. Phân tích phản hồi JSON, ưu tiên mảng `limits` (Anthropic bổ sung từ 08/2026, có giới hạn theo từng model) khi mảng này có ít nhất một phần tử hợp lệ, và dự phòng về các trường cấp cao nhất kiểu cũ nếu không có (không trộn lẫn hai định dạng):
    - Từ mảng `limits`: ánh xạ `kind === 'session'` (hoặc `kind` lạ có `group === 'session'`) sang 5 giờ (`5h`); ánh xạ `kind === 'weekly_all'` sang Tuần (`weekly`); ánh xạ `kind === 'weekly_scoped'` (hoặc `kind` lạ có `group === 'weekly'`) sang `other:<nhãn>`, trong đó `<nhãn>` lấy trực tiếp từ `scope.model.display_name` của API (nếu thiếu thì lấy `scope.surface`, hoặc `Tuần (<kind>)`), đã làm sạch và giới hạn tối đa 40 ký tự. Nếu hai mục trùng khóa cửa sổ, mục có tỷ lệ còn lại chưa làm tròn thấp hơn được giữ lại.
@@ -54,7 +55,7 @@ Vì sao dùng nguồn này: Codex CLI lưu sẵn OAuth token trong `auth.json`. 
 Mỗi lần làm mới Codex, tiện ích:
 
 1. Đọc tệp `<CODEX_HOME hoặc ~/.codex>/auth.json` (hoặc thư mục cấu hình trong `aiQuota.codexHome`), lấy `tokens.access_token` (và `tokens.account_id` nếu có), đồng thời kiểm tra hạn `exp` của JWT.
-2. Gửi `GET https://chatgpt.com/backend-api/wham/usage` với header `Authorization: Bearer <access_token>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.1.1` và `chatgpt-account-id: <account_id>` nếu có. Khi gặp mã `401`, hoặc `403` có `Content-Type` là JSON (`application/json` hoặc `+json`), tiện ích báo lỗi `auth`; nếu `403` không phải JSON (chẳng hạn trang chặn HTML), tiện ích báo lỗi `HTTP 403`.
+2. Gửi `GET https://chatgpt.com/backend-api/wham/usage` với header `Authorization: Bearer <access_token>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.0` và `chatgpt-account-id: <account_id>` nếu có. Khi gặp mã `401`, hoặc `403` có `Content-Type` là JSON (`application/json` hoặc `+json`), tiện ích báo lỗi `auth`; nếu `403` không phải JSON (chẳng hạn trang chặn HTML), tiện ích báo lỗi `HTTP 403`.
 3. Đọc `rate_limit.primary_window` và `rate_limit.secondary_window` trong phản hồi JSON (chấp nhận cả số và chuỗi số hữu hạn cho `used_percent`, `limit_window_seconds`, `reset_at`, `reset_after_seconds`).
 4. Ánh xạ `limit_window_seconds` sang khóa cửa sổ độc lập ngôn ngữ và nhãn hiển thị theo ngôn ngữ: `18000` thành `5h` (`5 giờ`), `604800` thành `weekly` (`Tuần`), thời lượng dương khác thành `other:<seconds>s` (nhãn theo số ngày chẵn, số giờ chẵn hoặc số phút làm tròn), và cửa sổ thiếu `limit_window_seconds` thành `other:primary` hoặc `other:secondary` (nhãn `Giới hạn`).
 5. Chuyển `used_percent` thành phần trăm còn lại (`0-100`, làm tròn xuống) dưới nhãn nhóm `Codex`, kẹp mọi `used_percent > 100` về `0%` còn lại (mức nghiêm trọng). Tính thời điểm reset bằng `reset_at * 1000` nếu có, nếu không thì dùng `now + reset_after_seconds * 1000`.
@@ -85,23 +86,40 @@ Số liệu đo trên máy tác giả, Windows 11, `agy` 1.4.12:
 > [!WARNING]
 > Tiện ích không bao giờ truyền cờ `--disable-slash-commands`. Với cờ này, `agy` gửi chuỗi `/usage` cho model như một lời nhắc thường: trong lần đo trên máy tác giả, lần chạy mất 33,4 giây, tạo một hội thoại mới, tiêu token của model và trả về văn xuôi thay cho bảng quota. Để phòng trường hợp `agy` bản sau bỏ lệnh `/usage` (cũng dẫn tới việc gửi chuỗi đó cho model), tiện ích chỉ nhận kết quả khi `command.name` là `usage`, `num_turns` bằng 0, `conversation_id` không có giá trị truthy (chuỗi rỗng, vắng mặt, `null`, `false` và `0` đều vượt qua bước kiểm tra này) và `status` (nếu có) là `SUCCESS`. Không thỏa thì báo lỗi loại "kết quả không mong đợi" và giãn dần khoảng làm mới (mục 5) để không tiêu quota đều đặn. Nếu bạn tự chạy lệnh trên trong terminal, đừng thêm cờ này.
 
+### 2.4. DeepSeek (`deepseek`)
+
+Vì sao dùng nguồn này: DeepSeek cung cấp điểm cuối kiểm tra số dư (`GET https://api.deepseek.com/user/balance`) trả về trạng thái khả dụng của tài khoản (`is_available`) và chi tiết `total_balance`, `topped_up_balance`, `granted_balance` theo từng loại tiền tệ mà không phát sinh lượt gọi model. Khác với Claude Code, Codex và Antigravity, DeepSeek báo cáo số dư tiền tệ chứ không có phần trăm giới hạn 5 giờ hay tuần, nên không có phần trăm theo khung thời gian và không có mốc thời gian reset.
+
+Mỗi lần làm mới DeepSeek, tiện ích:
+
+1. Tìm khóa API lúc chạy ở chế độ chỉ đọc theo đúng thứ tự ưu tiên:
+   - Trước hết kiểm tra biến môi trường `DEEPSEEK_API_KEY`.
+   - Nếu không có hoặc để rỗng, đọc tệp `~/.codewhale/secrets/secrets.json` (định dạng JSON `{"entries": {"<tên>": "sk-..."}}`), chỉ dùng mục tên `deepseek` (`entries.deepseek`); các mục khác (ví dụ khóa của dịch vụ khác) không bao giờ được đọc hay gửi đi.
+   - Nếu cả hai nơi đều không có khóa hợp lệ, tiện ích ghi trạng thái `no-key` (`missing_key`) ngay mà không gọi mạng và **ẩn mục DeepSeek trên thanh trạng thái** thay vì báo lỗi, nên máy không dùng DeepSeek sẽ không thấy gì. Khóa có nhưng bị máy chủ từ chối (HTTP `401`) vẫn báo lỗi `auth` và mục vẫn hiện.
+2. Gửi `GET https://api.deepseek.com/user/balance` với header `Authorization: Bearer <key>`, `Accept: application/json` và `User-Agent: ai-quota-bar/0.2.0`.
+3. Phân tích `is_available` và mảng `balance_infos` (`currency`, `total_balance`, `granted_balance`, `topped_up_balance`). Các loại tiền tệ được sắp xếp `USD` (`$`) trước, rồi đến `CNY` (`¥`), rồi các loại tiền tệ khác (`<TIỀN_TỆ> <số_tiền>`), định dạng 2 chữ số thập phân (ví dụ `DeepSeek $10.00` hoặc `DeepSeek $10.00 | ¥50.00`).
+4. Đánh giá mức cảnh báo và trạng thái hết số dư:
+   - Khi `is_available` là `false`, `total_balance` bằng `0` (và không có loại tiền tệ nào còn số dư dương), hoặc máy chủ trả về HTTP `402` (`Insufficient Balance`), thanh trạng thái hiện rõ trạng thái hết số dư (`DeepSeek $0.00 (hết số dư)` hoặc `DeepSeek: hết số dư`) kèm màu nền đỏ mức nghiêm trọng (`statusBarItem.errorBackground`).
+   - Khi `total_balance` dương và nhỏ hơn hoặc bằng `aiQuota.deepseekWarningThreshold` (mặc định `2`, miền `0`-`10000`; đặt `0` để tắt cảnh báo số dư thấp), mục thanh trạng thái đổi sang nền vàng mức cảnh báo (`statusBarItem.warningBackground`) và bật thông báo chuyển mức nếu đang bật thông báo.
+
 ## 3. Mô hình bảo mật, cam kết và giới hạn đã biết
 
 ### 3.1. Mô hình bảo mật và cam kết
 
-- **Chỉ đọc tệp đăng nhập**: Với Claude Code và Codex, tiện ích CHỈ ĐỌC `.credentials.json` và `auth.json`. Tiện ích không bao giờ ghi, sửa hay xóa các tệp đó, và không bao giờ tự làm mới (refresh) OAuth token. Với Antigravity, tiện ích hoàn toàn không đọc tệp thông tin đăng nhập nào.
-- **Không tự làm mới token và không lặp vòng khi lỗi xác thực**: Khi token hết hạn hoặc bị từ chối (`401`, hoặc `403` do xác thực), tiện ích báo lỗi loại `auth` kèm hướng dẫn mở lại `claude` hoặc `codex` để đăng nhập lại, không thử lại vòng.
-- **Token chỉ nằm trong bộ nhớ của lượt gọi**: Access token chỉ tồn tại trong bộ nhớ lúc thực hiện yêu cầu HTTP; không bao giờ được ghi vào `state-<id>.json`, kênh nhật ký Output, tooltip, thông báo, danh sách QuickPick hay thông điệp lỗi. Ngoại lệ tầng mạng và nội dung phản hồi lỗi HTTP không được đưa ra giao diện hay nhật ký; mọi lỗi HTTP/xác thực đều dùng thông điệp dịch cố định và đi qua hàm `sanitize`: cắt bỏ mã màu ANSI và ký tự điều khiển, chỉ giữ dòng đầu không rỗng (tối đa 120 hoặc 200 ký tự), che địa chỉ email, thông tin `Bearer`/`Basic`, giá trị các tham số URL nhạy cảm (`token`, `access_token`, `refresh_token`, `id_token`, `key`, `secret`, `password`, `code` và tương tự), các tiền tố token (`eyJ...`, `ya29.`), token OAuth (như `sk-ant-oat01-...`), và mọi chuỗi liền từ 24 ký tự chữ, số và ký hiệu `_-./+=` trở lên thành `[đã che]`.
-- **Host cố định qua HTTPS, không theo redirect**: Các yêu cầu HTTP trực tiếp chỉ gửi tới hai host cố định `https://api.anthropic.com` (Claude) và `https://chatgpt.com` (Codex) với tùy chọn `redirect: 'error'` để không bao giờ gửi nhầm token sang host khác khi có chuyển hướng. Phản hồi đọc theo khối với trần cứng 256 KiB và áp thời gian chờ theo `aiQuota.timeout` bằng `AbortController`.
+- **Chỉ đọc tệp đăng nhập**: Với Claude Code, Codex và DeepSeek, tiện ích CHỈ ĐỌC `.credentials.json`, `auth.json` và `~/.codewhale/secrets/secrets.json` (cùng biến môi trường `DEEPSEEK_API_KEY`). Tiện ích không bao giờ ghi, sửa hay xóa các tệp đó, và không bao giờ tự làm mới (refresh) OAuth token. Với Antigravity, tiện ích hoàn toàn không đọc tệp thông tin đăng nhập nào.
+- **Không tự làm mới token và không lặp vòng khi lỗi xác thực hoặc hết số dư**: Khi token hết hạn hoặc bị từ chối (`401`, hoặc `403` do xác thực), tiện ích báo lỗi loại `auth` kèm hướng dẫn mở lại `claude`, `codex` hoặc đặt `DEEPSEEK_API_KEY` / đăng nhập bằng `codewhale`, không thử lại vòng. Tương tự, khi tài khoản DeepSeek hết số dư (`is_available: false` hoặc HTTP `402`) hay bị giới hạn tần suất (`429`), tiện ích hiển thị trạng thái hết số dư / giới hạn tần suất và chờ theo chu kỳ làm mới hoặc thời hạn `Retry-After`, không tự thử lại vòng.
+- **Token và khóa API chỉ nằm trong bộ nhớ của lượt gọi**: Access token và khóa API DeepSeek chỉ tồn tại trong bộ nhớ lúc thực hiện yêu cầu HTTP; không bao giờ được ghi vào `state-<id>.json`, kênh nhật ký Output, tooltip, thông báo, danh sách QuickPick hay thông điệp lỗi. Với DeepSeek, nhật ký chỉ ghi nguồn khóa (`env`, `codewhale` hoặc `none`) và mã trạng thái/mã lỗi (`401`, `402`, `missing_key`, ...). Ngoại lệ tầng mạng và nội dung phản hồi lỗi HTTP không được đưa ra giao diện hay nhật ký; mọi lỗi HTTP/xác thực đều dùng thông điệp dịch cố định và đi qua hàm `sanitize`: cắt bỏ mã màu ANSI và ký tự điều khiển, chỉ giữ dòng đầu không rỗng (tối đa 120 hoặc 200 ký tự), che địa chỉ email, thông tin `Bearer`/`Basic`, giá trị các tham số URL nhạy cảm (`token`, `access_token`, `refresh_token`, `id_token`, `key`, `secret`, `password`, `code` và tương tự), các tiền tố token/khóa (`eyJ...`, `ya29.`, `sk-...`), token OAuth (như `sk-ant-oat01-...`), và mọi chuỗi liền từ 24 ký tự chữ, số và ký hiệu `_-./+=` trở lên thành `[đã che]`.
+- **Host cố định qua HTTPS, không theo redirect**: Các yêu cầu HTTP trực tiếp chỉ gửi tới ba host cố định `https://api.anthropic.com` (Claude), `https://chatgpt.com` (Codex) và `https://api.deepseek.com` (DeepSeek) với tùy chọn `redirect: 'error'` để không bao giờ gửi nhầm token sang host khác khi có chuyển hướng. Phản hồi đọc theo khối với trần cứng 256 KiB và áp thời gian chờ theo `aiQuota.timeout` bằng `AbortController`.
 - **Dự phòng `curl` dùng đường dẫn tuyệt đối trên Windows và truyền cấu hình qua `stdin`**: Khi `fetch` tới Claude gặp mã `403` có `"Request not allowed"`, tiện ích gọi `<%SystemRoot% hoặc C:\Windows>\System32\curl.exe` trên Windows (không tìm `curl.exe` trong thư mục hiện hành hay thư mục người dùng) hoặc `curl` trên macOS/Linux với tham số `['-q', '--config', '-']`, truyền toàn bộ cấu hình và header chứa token qua `stdin`, tuyệt đối không truyền qua tham số dòng lệnh (`argv`).
 - **Xử lý giới hạn tần suất (`429` / `Retry-After`)**: Khi gặp mã `429`, tiện ích đọc header `Retry-After` (dạng giây hoặc ngày HTTP), kẹp thời gian chờ trong khoảng từ 60 giây đến 1 giờ (mặc định 60 giây nếu không có `Retry-After`), và lưu mốc `retryAt` vào `state-<id>.json` để mọi cửa sổ VS Code cùng tôn trọng. Trong thời hạn chờ `retryAt`, kể cả làm mới thủ công cũng không gọi lại API mà chỉ ghi một dòng nhật ký (`Đang chờ giới hạn tần suất tới HH:MM.`).
-- **Công tắc nhà cung cấp chỉ nhận cài đặt người dùng (`scope: application`)**: Ba khóa `aiQuota.providers.<id>.enabled` có phạm vi `scope: application`, chỉ áp dụng ở cài đặt người dùng (`Global`). Cấu hình của workspace hoặc thư mục (`.vscode/settings.json` hay tệp `.code-workspace` trong repo) không thể ghi đè—đảm bảo một repo lạ hoặc bên thứ ba không thể tự ý bật lại nhà cung cấp mà bạn đã tắt (việc vốn sẽ kích hoạt đọc tệp đăng nhập cục bộ hoặc chạy `agy`) và không làm vô hiệu hóa lệnh `AI Quota Bar: Chọn nhà cung cấp hiển thị`.
+- **Công tắc nhà cung cấp chỉ nhận cài đặt người dùng (`scope: application`)**: Bốn khóa `aiQuota.providers.<id>.enabled` có phạm vi `scope: application`, chỉ áp dụng ở cài đặt người dùng (`Global`). Cấu hình của workspace hoặc thư mục (`.vscode/settings.json` hay tệp `.code-workspace` trong repo) không thể ghi đè—đảm bảo một repo lạ hoặc bên thứ ba không thể tự ý bật lại nhà cung cấp mà bạn đã tắt (việc vốn sẽ kích hoạt đọc tệp đăng nhập cục bộ hoặc chạy `agy`) và không làm vô hiệu hóa lệnh `AI Quota Bar: Chọn nhà cung cấp hiển thị`.
 - **Không gửi telemetry và cô lập tệp trạng thái**: Tiện ích không gửi telemetry và chỉ ghi vào thư mục lưu trữ riêng do VS Code cấp (`globalStorageUri`): các tệp trạng thái `state-<id>.json`, tệp khóa `state-<id>.lock` và tệp tạm `.tmp` khi ghi nguyên tử (mục 4.7).
 
 ### 3.2. Giới hạn đã biết
 
 - **Không tự làm mới token (token Claude Code hết hạn sau vài giờ, Codex sau vài ngày)**: Theo thiết kế, `ai-quota-bar` không bao giờ tự làm mới OAuth token. Access token của Claude Code thường hết hạn sau vài giờ và của Codex sau vài ngày; nếu bạn lâu không mở `claude` hoặc `codex`, mục trên thanh trạng thái sẽ báo `Claude: chưa đăng nhập` hoặc `Codex: chưa đăng nhập` cho tới khi bạn mở lại `claude` hoặc `codex` để CLI tự làm mới phiên đăng nhập.
-- **Chưa hỗ trợ macOS Keychain**: Trên macOS, Claude Code có thể lưu thông tin đăng nhập OAuth trong macOS Keychain thay vì tệp `~/.claude/.credentials.json`. Hiện tại `ai-quota-bar` chỉ đọc tệp `.credentials.json` và `auth.json` trên đĩa; nếu trên macOS không có tệp này, nhà cung cấp sẽ báo chưa đăng nhập.
+- **Số dư DeepSeek là tiền tệ (`USD`/`CNY`), không phải phần trăm theo khung thời gian, và khi hết số dư / bị giới hạn tần suất sẽ không thử lại vòng**: Điểm cuối `/user/balance` của DeepSeek trả về số dư tiền còn lại chứ không có phần trăm 5 giờ hay tuần, nên DeepSeek không có thời điểm reset hay đồng hồ đếm ngược. Nếu tài khoản DeepSeek hết số dư (`is_available: false` hoặc HTTP `402`) hay gặp giới hạn tần suất (`429`), thanh trạng thái hiện `DeepSeek $0.00 (hết số dư)` / `DeepSeek: hết số dư` (hoặc lỗi giới hạn tần suất) và tuân theo khoảng lùi / thời hạn chờ `Retry-After` thông thường, không tự thử lại vòng.
+- **Chưa hỗ trợ macOS Keychain**: Trên macOS, Claude Code có thể lưu thông tin đăng nhập OAuth trong macOS Keychain thay vì tệp `~/.claude/.credentials.json`. Hiện tại `ai-quota-bar` chỉ đọc tệp `.credentials.json`, `auth.json` và `secrets.json` trên đĩa; nếu trên macOS không có tệp này, nhà cung cấp sẽ báo chưa đăng nhập.
 - **Chưa có cấu hình proxy riêng; VS Code cũ (`1.90`-`1.93`) có thể không đưa `fetch` qua `http.proxy`**: Tiện ích chưa có cài đặt proxy riêng và dùng `fetch` toàn cục của Node (cùng `curl` khi dự phòng). Trên các bản VS Code cũ (`1.90`-`1.93`), `fetch` trong extension host có thể không tự động đi qua cấu hình `http.proxy` của VS Code.
 - **API usage của Anthropic và ChatGPT không chính thức, có thể thay đổi**: Điểm cuối `/api/oauth/usage` của Anthropic và `/backend-api/wham/usage` của ChatGPT là API nội bộ của công cụ chứ không phải API công khai cố định, nên cấu trúc yêu cầu hoặc phản hồi có thể thay đổi mà không báo trước. Tương tự, định dạng đầu ra lệnh `/usage` của `agy` cũng có thể đổi ở các bản sau.
 - **Dự phòng `curl` chỉ kích hoạt khi Claude trả 403 `"Request not allowed"`**: Nhánh gọi `curl` chỉ dùng cho Claude Code và chỉ khi `fetch` nhận mã HTTP `403` có chuỗi `"Request not allowed"` trong thân phản hồi. Các lỗi `403` khác của Claude được coi là lỗi xác thực (`auth`), và Codex không dùng dự phòng `curl`.
@@ -143,27 +161,27 @@ cd ai-quota-bar
 npx @vscode/vsce@3.6.0 package
 ```
 
-Lệnh tạo ra tệp `ai-quota-bar-0.1.1.vsix`. Dự án không dùng thư viện npm bên ngoài (chỉ dùng `fetch` toàn cục và các mô-đun `node:*` dựng sẵn), nên không cần chạy `npm install` trước khi đóng gói.
+Lệnh tạo ra tệp `ai-quota-bar-0.2.0.vsix`. Dự án không dùng thư viện npm bên ngoài (chỉ dùng `fetch` toàn cục và các mô-đun `node:*` dựng sẵn), nên không cần chạy `npm install` trước khi đóng gói.
 
-Nếu tải tệp `ai-quota-bar-0.1.1.vsix` dựng sẵn từ bản phát hành trong tương lai, hãy đối chiếu mã băm SHA-256 trước khi cài:
+Nếu tải tệp `ai-quota-bar-0.2.0.vsix` dựng sẵn từ bản phát hành trong tương lai, hãy đối chiếu mã băm SHA-256 trước khi cài:
 
 ```powershell
-Get-FileHash ai-quota-bar-0.1.1.vsix -Algorithm SHA256
+Get-FileHash ai-quota-bar-0.2.0.vsix -Algorithm SHA256
 ```
 
 Cài vào VS Code:
 
 ```powershell
-code --install-extension ai-quota-bar-0.1.1.vsix
+code --install-extension ai-quota-bar-0.2.0.vsix
 ```
 
 Cài vào Antigravity IDE (tệp lệnh nằm ở `%LOCALAPPDATA%\Programs\Antigravity IDE\bin\antigravity-ide.cmd`; nếu thư mục `bin` đó không có trong `PATH` thì gọi bằng đường dẫn đầy đủ):
 
 ```powershell
-antigravity-ide --install-extension ai-quota-bar-0.1.1.vsix
+antigravity-ide --install-extension ai-quota-bar-0.2.0.vsix
 ```
 
-Hoặc trong giao diện của cả hai ứng dụng: khung Extensions, menu `...`, chọn "Install from VSIX...", rồi chọn tệp `ai-quota-bar-0.1.1.vsix`.
+Hoặc trong giao diện của cả hai ứng dụng: khung Extensions, menu `...`, chọn "Install from VSIX...", rồi chọn tệp `ai-quota-bar-0.2.0.vsix`.
 
 Sau khi cài `ai-quota-bar`, hãy gỡ hoặc tắt `XXLC.agy-quota-bar` và tắt các tiện ích xem quota Claude Code, Codex hoặc Antigravity riêng lẻ để tránh gọi API trùng lặp và tránh hiện hai mục trùng nhau trên thanh trạng thái.
 
@@ -386,7 +404,7 @@ Trên Windows, `aiQuota.agyPath` chỉ chấp nhận tệp `.exe` vì tiện íc
 
 ## 6. Tình trạng kiểm chứng
 
-Tiện ích này tổng quát hóa `XXLC.agy-quota-bar` (vốn đã có 174 kiểm thử tự động đạt và số liệu đo `agy` thật trên Windows 11 với `agy` 1.4.12) để bổ sung thêm hai nguồn Claude Code và Codex. Bộ kiểm thử hiện có 330 kiểm thử tự động đạt trên toàn bộ `test/*.test.js`.
+Tiện ích này tổng quát hóa `XXLC.agy-quota-bar` (vốn đã có 174 kiểm thử tự động đạt và số liệu đo `agy` thật trên Windows 11 với `agy` 1.4.12) để bổ sung thêm các nguồn Claude Code, Codex và DeepSeek. Bộ kiểm thử hiện có 363 kiểm thử tự động đạt trên toàn bộ `test/*.test.js`.
 
 Kiểm thử tự động:
 
@@ -394,7 +412,7 @@ Kiểm thử tự động:
 npm test
 ```
 
-Chạy `node --test test/*.test.js` hoàn toàn ngoại tuyến (330 kiểm thử) bằng cách tiêm (inject) các hàm giả lập `fetch`, `fs` và `execFile` (không bao giờ đọc `~/.claude/.credentials.json` hay `~/.codex/auth.json` thật, không gọi mạng và không chạy `agy` thật).
+Chạy `node --test test/*.test.js` hoàn toàn ngoại tuyến (363 kiểm thử) bằng cách tiêm (inject) các hàm giả lập `fetch`, `fs` và `execFile` (không bao giờ đọc `~/.claude/.credentials.json` hay `~/.codex/auth.json` thật, không gọi mạng và không chạy `agy` thật).
 
 Các điểm CHƯA được kiểm chứng tại thời điểm soạn README này:
 

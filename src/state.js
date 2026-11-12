@@ -16,13 +16,17 @@ function validState(value) {
   if (value.levels !== undefined && (typeof value.levels !== 'object' || Array.isArray(value.levels) ||
       !Object.values(value.levels).every(level => ['ok', 'warning', 'critical'].includes(level)))) return false;
   if (value.error != null && (typeof value.error.message !== 'string' ||
-      !['not-found', 'timeout', 'exit', 'spawn', 'unexpected', 'auth', 'network', 'http'].includes(value.error.type))) return false;
+      (value.error.code != null && !Number.isFinite(value.error.code)) ||
+      !['not-found', 'timeout', 'exit', 'spawn', 'unexpected', 'auth', 'no-key', 'network', 'http'].includes(value.error.type))) return false;
   return ['lastAttemptAt', 'lastSuccessAt', 'runningSince', 'notifiedAt', 'retryAt'].every(key =>
     value[key] == null || Number.isFinite(value[key])) && value.buckets.every(bucket =>
     bucket && typeof bucket.groupName === 'string' && typeof bucket.groupLabel === 'string' &&
     typeof bucket.windowKey === 'string' && typeof bucket.windowLabel === 'string' &&
     Number.isFinite(bucket.percent) && bucket.percent >= 0 && bucket.percent <= 100 &&
-    (bucket.resetAt === null || Number.isFinite(bucket.resetAt)));
+    (bucket.resetAt === null || Number.isFinite(bucket.resetAt)) &&
+    (bucket.balance === undefined || Number.isFinite(bucket.balance) &&
+      typeof bucket.totalBalance === 'string' && typeof bucket.toppedUpBalance === 'string' &&
+      typeof bucket.grantedBalance === 'string' && typeof bucket.available === 'boolean'));
 }
 // Thông điệp lỗi giữ bản dịch tại thời điểm lưu, kể cả khi đổi ngôn ngữ sau đó.
 function localResult(state, result, time) {

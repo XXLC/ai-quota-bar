@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const claude = require('../src/providers/claude');
 const codex = require('../src/providers/codex');
+const deepseek = require('../src/providers/deepseek');
 const {MAX_BYTES, retryAfter} = require('../src/providers/http');
 const {setLocale} = require('../src/i18n');
 const {createStore, emptyState, localResult, validState} = require('../src/state');
@@ -14,19 +15,24 @@ const {display, notification, sanitize} = require('../src/format');
 setLocale('vi');
 const now = Date.parse('2026-11-03T00:00:00Z');
 const reset = '2099-01-01T00:00:00Z';
-const fakeTokens = ['sk-ant-oat01-FAKE-CHI-DUNG-KIEM-THU', 'eyJhbGciOiJub25lIn0.eyJmYWtlIjp0cnVlfQ.FAKE'];
+const fakeTokens = ['sk-ant-oat01-FAKE-CHI-DUNG-KIEM-THU', 'eyJhbGciOiJub25lIn0.eyJmYWtlIjp0cnVlfQ.FAKE', 'sk-test-0000'];
 const payload = id => id === 'claude' ? {five_hour: {utilization: 27.2, resets_at: reset},
-  seven_day: {utilization: 15, resets_at: reset}} : {rate_limit: {
+  seven_day: {utilization: 15, resets_at: reset}} : id === 'deepseek' ? {
+  is_available: true,
+  balance_infos: [{currency: 'USD', total_balance: '10.00', granted_balance: '0.00', topped_up_balance: '10.00'}]
+} : {rate_limit: {
   primary_window: {used_percent: 14.3, limit_window_seconds: 18000, reset_at: now / 1000 + 300},
   secondary_window: {used_percent: 5, limit_window_seconds: 604800, reset_after_seconds: 600}}};
 function fixture(definition, options = {}) {
   const id = definition.id;
-  const reads = [], calls = [], timers = [], curl = [];
-  const token = options.token || fakeTokens[id === 'claude' ? 0 : 1];
+  const reads = [], calls = [], timers = [], curl = [], logs = [];
+  const token = options.token || fakeTokens[id === 'claude' ? 0 : id === 'codex' ? 1 : 2];
   const auth = options.auth ?? (id === 'claude' ? {claudeAiOauth: {accessToken: token}} :
+    id === 'deepseek' ? {entries: {deepseek: token}} :
     {tokens: {access_token: token, account_id: 'tai-khoan-gia'}});
   const deps = {
     now: () => now, env: options.env || {}, homedir: () => '/nguoi-dung', platform: options.platform || 'win32',
+    log(msg) { logs.push(msg); },
     fs: {async readFile(file) {
       reads.push(file);
       if (options.readError) throw options.readError;
@@ -47,7 +53,7 @@ function fixture(definition, options = {}) {
       return child;
     }
   };
-  return {provider: definition.createProvider(deps), reads, calls, timers, curl, token};
+  return {provider: definition.createProvider(deps), reads, calls, timers, curl, logs, token};
 }
 test('Claude phân tích đủ cửa sổ, bỏ null và chuyển phần trăm đã dùng thành còn lại', () => {
   const result = claude.parseUsage({...payload('claude'), seven_day_opus: {utilization: 0}, seven_day_sonnet: null});
@@ -231,37 +237,45 @@ test('Codex loại cửa sổ thiếu, null, sai kiểu và ngoài khoảng', ()
   }
   assert.deepEqual(codex.parseUsage(null), []);
 });
-for (const definition of [claude, codex]) {
+for (const definition of [claude, codex, deepseek]) {
   test(definition.name + ': đọc đúng tệp, chỉ GET tới host cố định và không chuyển hướng', async () => {
     const h = fixture(definition);
     const result = await h.provider.fetch();
-    assert.equal(result.buckets.length, 2);
+    assert.equal(result.buckets.length, definition.id === 'deepseek' ? 1 : 2);
     assert.equal(h.reads.length, 1); assert.equal(h.calls.length, 1);
     const call = h.calls[0];
-    assert.equal(call.url, definition.id === 'claude' ? 'https://api.anthropic.com/api/oauth/usage' : 'https://chatgpt.com/backend-api/wham/usage');
+    assert.equal(call.url, definition.id === 'claude' ? 'https://api.anthropic.com/api/oauth/usage' :
+      definition.id === 'deepseek' ? 'https://api.deepseek.com/user/balance' :
+      'https://chatgpt.com/backend-api/wham/usage');
     assert.equal(call.init.method, 'GET'); assert.equal(call.init.redirect, 'error');
     assert.equal(call.init.headers.Authorization, 'Bearer ' + h.token);
     assert.ok(call.init.signal instanceof AbortSignal);
     if (definition.id === 'claude') assert.equal(call.init.headers['anthropic-beta'], 'oauth-2025-04-20');
-    else assert.equal(call.init.headers['chatgpt-account-id'], 'tai-khoan-gia');
-    assert.equal(h.reads[0], path.join('/nguoi-dung', definition.id === 'claude' ? '.claude/.credentials.json' : '.codex/auth.json'));
+    else if (definition.id === 'codex') assert.equal(call.init.headers['chatgpt-account-id'], 'tai-khoan-gia');
+    assert.equal(h.reads[0], path.join('/nguoi-dung', definition.id === 'claude' ? '.claude/.credentials.json' :
+      definition.id === 'deepseek' ? '.codewhale/secrets/secrets.json' : '.codex/auth.json'));
   });
-  test(definition.name + ': ưu tiên cấu hình rồi biến môi trường, không ghi tệp', async () => {
-    const key = definition.id === 'claude' ? 'claudeConfigDir' : 'codexHome';
-    const envKey = definition.id === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
-    const h = fixture(definition, {env: {[envKey]: '/bien-moi-truong'}});
-    await h.provider.fetch({[key]: '/cau-hinh'}); await h.provider.fetch({[key]: ''});
-    assert.equal(path.dirname(h.reads[0]), path.normalize('/cau-hinh'));
-    assert.equal(path.dirname(h.reads[1]), path.normalize('/bien-moi-truong'));
-    assert.equal(h.reads.length, 2);
-  });
+  if (definition.id !== 'deepseek') {
+    test(definition.name + ': ưu tiên cấu hình rồi biến môi trường, không ghi tệp', async () => {
+      const key = definition.id === 'claude' ? 'claudeConfigDir' : 'codexHome';
+      const envKey = definition.id === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME';
+      const h = fixture(definition, {env: {[envKey]: '/bien-moi-truong'}});
+      await h.provider.fetch({[key]: '/cau-hinh'}); await h.provider.fetch({[key]: ''});
+      assert.equal(path.dirname(h.reads[0]), path.normalize('/cau-hinh'));
+      assert.equal(path.dirname(h.reads[1]), path.normalize('/bien-moi-truong'));
+      assert.equal(h.reads.length, 2);
+    });
+  }
   for (const [label, options] of [['thiếu tệp', {readError: Object.assign(new Error('gia'), {code: 'ENOENT'})}],
     ['tệp hỏng', {text: '{'}], ['thiếu token', {auth: {}}], ['token rỗng', {token: ' '}],
-    ['token có xuống dòng', {token: 'gia\r\nX: gia'}]]) {
+    ['token có xuống dòng', {token: 'sk-gia\r\nX: gia'}]]) {
     test(definition.name + ': ' + label + ' hướng dẫn đăng nhập, không gọi mạng', async () => {
       const h = fixture(definition, options); const result = await h.provider.fetch();
-      assert.equal(result.error.type, 'auth'); assert.ok(result.error.message.includes(definition.id));
+      assert.equal(result.error.type, definition.id === 'deepseek' ? 'no-key' : 'auth');
+      if (definition.id === 'deepseek') assert.ok(result.error.message.includes('DEEPSEEK_API_KEY'));
+      else assert.ok(result.error.message.includes(definition.id));
       assert.equal(h.calls.length, 0); assert.equal(h.curl.length, 0);
+      for (const token of fakeTokens) assert.ok(!JSON.stringify([result, h.logs]).includes(token));
     });
   }
   for (const status of [401, 403, 429, 500, 503, 302]) {
@@ -272,7 +286,7 @@ for (const definition of [claude, codex]) {
       assert.equal(h.calls.length, 1); assert.equal(h.curl.length, 0);
       const state = localResult(emptyState(), result, now);
       const model = display(state, now, {}, {id: definition.id, name: definition.name});
-      const visible = JSON.stringify([state, model, sanitize(result.error.message)]);
+      const visible = JSON.stringify([state, model, sanitize(result.error.message), h.logs]);
       for (const token of fakeTokens) assert.ok(!visible.includes(token));
       if (status === 429) assert.equal(result.retryAfterMs, 60000);
     });
@@ -288,7 +302,7 @@ for (const definition of [claude, codex]) {
     test(definition.name + ': ' + label + ' được làm sạch', async () => {
       const h = fixture(definition, options); const result = await h.provider.fetch();
       assert.equal(result.error.type, type);
-      for (const token of fakeTokens) assert.ok(!JSON.stringify(result).includes(token));
+      for (const token of fakeTokens) assert.ok(!JSON.stringify([result, h.logs]).includes(token));
     });
   }
   test(definition.name + ': timeout áp dụng cả phản hồi treo và hủy không báo lỗi', async () => {
@@ -297,6 +311,7 @@ for (const definition of [claude, codex]) {
     await new Promise(setImmediate); assert.equal(h.timers[0].ms, 7000);
     h.timers[0].cb();
     assert.equal((await pending).error.type, 'timeout'); assert.ok(h.calls[0].init.signal.aborted);
+    for (const token of fakeTokens) assert.ok(!JSON.stringify(h.logs).includes(token));
     const other = fixture(definition, {fetch: () => new Promise(() => {})});
     const cancelled = other.provider.fetch(); await new Promise(setImmediate); other.provider.dispose();
     assert.deepEqual(await cancelled, {cancelled: true});
@@ -307,11 +322,13 @@ for (const definition of [claude, codex]) {
     const pending = h.provider.fetch(); await new Promise(setImmediate); h.timers[0].cb();
     assert.equal((await pending).error.type, 'timeout');
   });
-  test(definition.name + ': bỏ token JWT hết hạn, không làm mới', async () => {
-    const token = 'eyJhbGciOiJub25lIn0.' + Buffer.from(JSON.stringify({exp: now / 1000 - 1})).toString('base64url') + '.FAKE';
-    const h = fixture(definition, {token});
-    assert.equal((await h.provider.fetch()).error.type, 'auth'); assert.equal(h.calls.length, 0);
-  });
+  if (definition.id !== 'deepseek') {
+    test(definition.name + ': bỏ token JWT hết hạn, không làm mới', async () => {
+      const token = 'eyJhbGciOiJub25lIn0.' + Buffer.from(JSON.stringify({exp: now / 1000 - 1})).toString('base64url') + '.FAKE';
+      const h = fixture(definition, {token});
+      assert.equal((await h.provider.fetch()).error.type, 'auth'); assert.equal(h.calls.length, 0);
+    });
+  }
   test(definition.name + ': Retry-After của máy chủ được truyền về kho', async () => {
     for (const [value, expected] of [['120', 120000], ['7200', 3600000], ['sai', 60000], ['0', 60000],
       [new Date(now + 180000).toUTCString(), 180000]]) {
@@ -427,7 +444,7 @@ test('Retry-After không làm nhịp tự động nhanh hơn và bị chặn t�
     buckets: [{resetAt: now + 1}], consecutiveErrors: 4};
   assert.equal(intervalMs(state, {}), 1200000);
   assert.equal(isRefreshDue(state, now + 61000, {}), false);
-  for (const type of ['auth', 'network', 'http']) assert.equal(validState({...emptyState(), error: {type, message: 'Lỗi giả.'}}), true);
+  for (const type of ['auth', 'no-key', 'network', 'http']) assert.equal(validState({...emptyState(), error: {type, message: 'Lỗi giả.'}}), true);
   assert.equal(validState({...emptyState(), retryAt: 'sai'}), false);
 });
 
@@ -446,7 +463,7 @@ test('Pha 3 mục 4: curl Windows dùng SystemRoot tuyệt đối; thư mục ch
 
 test('Pha 3 mục 9: User-Agent được gửi qua fetch và curl', async () => {
   const agent = 'ai-quota-bar/' + require('../package.json').version;
-  for (const definition of [claude, codex]) {
+  for (const definition of [claude, codex, deepseek]) {
     const h = fixture(definition);
     await h.provider.fetch();
     assert.equal(h.calls[0].init.headers['User-Agent'], agent);
@@ -469,5 +486,174 @@ test('Pha 3 mục 9: Codex 403 JSON là lỗi xác thực, HTML hoặc thiếu l
     assert.equal(result.error.type, json ? 'auth' : 'http');
     if (!json) assert.match(result.error.message, /HTTP 403/);
     assert.equal(cancelled, true); assert.equal(h.curl.length, 0);
+  }
+});
+
+test('DeepSeek ưu tiên DEEPSEEK_API_KEY, rơi về entries.deepseek rồi mục sk- đầu tiên và chỉ ghi nguồn khóa', async () => {
+  try {
+    for (const locale of ['vi', 'en']) {
+      setLocale(locale);
+      const envFixture = fixture(deepseek, {env: {DEEPSEEK_API_KEY: 'sk-test-0000'}, auth: {entries: {deepseek: 'sk-other-0000'}}});
+      const envResult = await envFixture.provider.fetch();
+      assert.equal(envResult.buckets.length, 1);
+      assert.equal(envFixture.reads.length, 0);
+      assert.equal(envFixture.calls[0].init.headers.Authorization, 'Bearer sk-test-0000');
+      assert.ok(envFixture.logs.some(line => line.includes(locale === 'vi' ? 'nguồn khóa: env' : 'key source: env')));
+
+      const namedFixture = fixture(deepseek, {auth: {entries: {other: 'sk-other-0000', deepseek: 'sk-test-0000'}}});
+      await namedFixture.provider.fetch();
+      assert.equal(namedFixture.reads.length, 1);
+      assert.equal(namedFixture.calls[0].init.headers.Authorization, 'Bearer sk-test-0000');
+      assert.ok(namedFixture.logs.some(line => line.includes(locale === 'vi' ? 'nguồn khóa: codewhale' : 'key source: codewhale')));
+
+      const foreignFixture = fixture(deepseek, {auth: {entries: {plain: 'khong-phai-sk', openai: 'sk-other-0000'}}});
+      const foreignResult = await foreignFixture.provider.fetch();
+      assert.equal(foreignResult.error.type, 'no-key');
+      assert.equal(foreignFixture.calls.length, 0);
+      assert.ok(!JSON.stringify(foreignFixture.calls).includes('sk-other-0000'));
+
+      const missingFixture = fixture(deepseek, {auth: {entries: {plain: 'khong-phai-sk'}}});
+      const missingResult = await missingFixture.provider.fetch();
+      assert.equal(missingResult.error.type, 'no-key');
+      assert.equal(missingFixture.calls.length, 0);
+      assert.ok(missingFixture.logs.some(line => line.includes(locale === 'vi' ? 'nguồn khóa: none' : 'key source: none') &&
+        line.includes('missing_key')));
+
+      const allLogs = [...envFixture.logs, ...namedFixture.logs, ...foreignFixture.logs, ...missingFixture.logs].join('\n');
+      assert.ok(!allLogs.includes('sk-test-0000'));
+      assert.ok(!allLogs.includes('sk-other-0000'));
+    }
+  } finally {
+    setLocale('vi');
+  }
+});
+
+test('DeepSeek phân tích số dư, sắp xếp USD rồi CNY và định dạng bảng chú giải', () => {
+  const single = deepseek.parseUsage(payload('deepseek'));
+  assert.equal(single.length, 1);
+  assert.deepEqual(single[0], {
+    provider: 'deepseek',
+    groupName: 'DeepSeek',
+    groupLabel: 'DeepSeek',
+    windowKey: 'balance:USD',
+    windowLabel: 'USD',
+    currency: 'USD',
+    percent: 100,
+    fraction: 1,
+    resetAt: null,
+    balance: 10,
+    totalBalance: '$10.00',
+    toppedUpBalance: '$10.00',
+    grantedBalance: '$0.00',
+    available: true
+  });
+  const model = display({...emptyState(), buckets: single, lastSuccessAt: now}, now, {}, deepseek);
+  assert.equal(model.text, 'DeepSeek $10.00');
+  assert.equal(model.severity, 'ok');
+  assert.ok(model.tooltip.includes('| Tiền tệ | Tổng | Đã nạp | Được tặng |'));
+  assert.ok(model.tooltip.includes('| USD | $10.00 | $10.00 | $0.00 |'));
+
+  const multi = deepseek.parseUsage({
+    is_available: true,
+    balance_infos: [
+      {currency: 'EUR', total_balance: '5.25', granted_balance: '1.25', topped_up_balance: '4.00'},
+      {currency: 'CNY', total_balance: '50.5', granted_balance: '10', topped_up_balance: '40.5'},
+      {currency: 'USD', total_balance: '10', granted_balance: '0', topped_up_balance: '10'}
+    ]
+  });
+  assert.deepEqual(multi.map(b => [b.currency, b.totalBalance, b.toppedUpBalance, b.grantedBalance]), [
+    ['USD', '$10.00', '$10.00', '$0.00'],
+    ['CNY', '¥50.50', '¥40.50', '¥10.00'],
+    ['EUR', 'EUR 5.25', 'EUR 4.00', 'EUR 1.25']
+  ]);
+  const multiModel = display({...emptyState(), buckets: multi, lastSuccessAt: now}, now, {}, deepseek);
+  assert.equal(multiModel.text, 'DeepSeek $10.00 | ¥50.50 | EUR 5.25');
+});
+
+test('DeepSeek hiển thị rõ trạng thái hết số dư khi is_available=false, số dư bằng 0 hoặc HTTP 402', async () => {
+  try {
+    for (const locale of ['vi', 'en']) {
+      setLocale(locale);
+      const zeroBuckets = deepseek.parseUsage({
+        is_available: false,
+        balance_infos: [{currency: 'USD', total_balance: '0.00', granted_balance: '0.00', topped_up_balance: '0.00'}]
+      });
+      const zeroModel = display({...emptyState(), buckets: zeroBuckets, lastSuccessAt: now}, now, {}, deepseek);
+      assert.equal(zeroModel.text, locale === 'vi' ? 'DeepSeek $0.00 (hết số dư)' : 'DeepSeek $0.00 (no balance)');
+      assert.equal(zeroModel.severity, 'critical');
+
+      const emptyInfos = deepseek.parseUsage({is_available: false, balance_infos: []});
+      const emptyModel = display({...emptyState(), buckets: emptyInfos, lastSuccessAt: now}, now, {}, deepseek);
+      assert.equal(emptyModel.text, locale === 'vi' ? 'DeepSeek $0.00 (hết số dư)' : 'DeepSeek $0.00 (no balance)');
+      assert.equal(emptyModel.severity, 'critical');
+
+      const h = fixture(deepseek, {status: 402, body: JSON.stringify({error: 'Insufficient Balance sk-test-0000'})});
+      const result = await h.provider.fetch();
+      assert.equal(result.error.type, 'http');
+      assert.equal(result.error.code, 402);
+      assert.ok(h.logs.some(line => line.includes('402') && line.includes(locale === 'vi' ? 'nguồn khóa: codewhale' : 'key source: codewhale')));
+      assert.ok(!JSON.stringify([result, h.logs]).includes('sk-test-0000'));
+
+      const state = localResult(emptyState(), result, now);
+      assert.equal(validState(state), true);
+      const http402Model = display(state, now, {}, deepseek);
+      assert.equal(http402Model.text, locale === 'vi' ? '$(error) DeepSeek: hết số dư' : '$(error) DeepSeek: no balance');
+      assert.equal(http402Model.severity, 'critical');
+
+      const cachedState = localResult({...emptyState(), buckets: deepseek.parseUsage(payload('deepseek')), lastSuccessAt: now}, result, now);
+      const cached402Model = display(cachedState, now, {}, deepseek);
+      assert.equal(cached402Model.text, locale === 'vi' ? '$(history) DeepSeek: hết số dư' : '$(history) DeepSeek: no balance');
+      assert.equal(cached402Model.severity, 'critical');
+    }
+  } finally {
+    setLocale('vi');
+  }
+});
+
+test('DeepSeek áp dụng ngưỡng cảnh báo số dư thấp deepseekWarningThreshold và thông báo', () => {
+  const high = deepseek.parseUsage(payload('deepseek'));
+  const low = deepseek.parseUsage({
+    is_available: true,
+    balance_infos: [{currency: 'USD', total_balance: '2.00', granted_balance: '0.00', topped_up_balance: '2.00'}]
+  });
+  const empty = deepseek.parseUsage({
+    is_available: false,
+    balance_infos: [{currency: 'USD', total_balance: '0.00', granted_balance: '0.00', topped_up_balance: '0.00'}]
+  });
+  const step1 = transitions(high, {}, now);
+  assert.equal(step1.levels['deepseek|DeepSeek|balance:USD'], 'ok');
+  assert.equal(step1.events.length, 0);
+
+  const step2 = transitions(low, step1.levels, now);
+  assert.equal(step2.levels['deepseek|DeepSeek|balance:USD'], 'warning');
+  assert.equal(notification(step2, deepseek), 'DeepSeek: DeepSeek (USD) số dư thấp, còn $2.00.');
+  assert.equal(display({...emptyState(), buckets: low, lastSuccessAt: now}, now, {}, deepseek).severity, 'warning');
+
+  const step3 = transitions(empty, step2.levels, now);
+  assert.equal(step3.levels['deepseek|DeepSeek|balance:USD'], 'critical');
+  assert.equal(notification(step3, deepseek), 'DeepSeek: DeepSeek (USD) hết số dư ($0.00).');
+
+  const step4 = transitions(high, step3.levels, now);
+  assert.equal(step4.levels['deepseek|DeepSeek|balance:USD'], 'ok');
+  assert.equal(notification(step4, deepseek), 'DeepSeek: DeepSeek (USD) đã hồi phục, số dư $10.00.');
+
+  const disabled = transitions(low, {}, now, {deepseekWarningThreshold: 0});
+  assert.equal(disabled.levels['deepseek|DeepSeek|balance:USD'], 'ok');
+  assert.equal(display({...emptyState(), buckets: low, lastSuccessAt: now}, now, {deepseekWarningThreshold: 0}, deepseek).severity, 'ok');
+});
+
+test('DeepSeek từ chối phản hồi lạ hoặc sai kiểu và không bao giờ lộ khóa giả', async () => {
+  for (const raw of [
+    null,
+    {},
+    {is_available: true, balance_infos: 'sai'},
+    {is_available: true, balance_infos: []},
+    {is_available: true, balance_infos: [null, {}, {currency: 'USD', total_balance: 'NaN'}, {currency: 'USD', total_balance: '-1'}, {currency: '', total_balance: '10.00'}]}
+  ]) {
+    assert.deepEqual(deepseek.parseUsage(raw), []);
+    const h = fixture(deepseek, {body: JSON.stringify(raw)});
+    const result = await h.provider.fetch();
+    assert.equal(result.error.type, 'http');
+    assert.ok(!JSON.stringify([result, h.logs]).includes('sk-test-0000'));
   }
 });

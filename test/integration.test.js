@@ -10,7 +10,7 @@ const vm = require('node:vm');
 const sourceRoot = path.resolve(__dirname, '../src');
 const pause = () => new Promise(resolve => setTimeout(resolve, 2));
 async function until(check) {
-  const deadline = Date.now() + 3000;
+  const deadline = Date.now() + 10000;
   while (!check()) {
     if (Date.now() > deadline) assert.fail('Hết thời gian chờ điều kiện tích hợp.');
     await pause();
@@ -39,7 +39,7 @@ function openWindow(context, directory, options = {}) {
   const executed = [];
   const credentialReads = [];
   const instances = [];
-  const bar = {show() {}, dispose() { this.disposed = true; }};
+  const bar = {show() { this.hidden = false; }, hide() { this.hidden = true; }, dispose() { this.disposed = true; }};
   const bars = [];
   let changed;
   let tick;
@@ -56,7 +56,7 @@ function openWindow(context, directory, options = {}) {
     MarkdownString: class {constructor(value) { this.value = value; }},
     workspace: {
       getConfiguration: () => ({
-        get: key => options.values?.[key] ?? (key === 'agyPath' ? options.agyPath ?? process.execPath : !options.defaultProviders && (key === 'providers.claude.enabled' || key === 'providers.codex.enabled') ? false : undefined),
+        get: key => options.values?.[key] ?? (key === 'agyPath' ? options.agyPath ?? process.execPath : !options.defaultProviders && (key === 'providers.claude.enabled' || key === 'providers.codex.enabled' || key === 'providers.deepseek.enabled') ? false : undefined),
         async update(key, value, target) {
           await options.beforeUpdate?.(key, value, target);
           updates.push({key, value, target});
@@ -76,7 +76,7 @@ function openWindow(context, directory, options = {}) {
     },
     window: {
       createStatusBarItem: (id, alignment, priority) => {
-        const item = bars.length ? {show() {}, dispose() { this.disposed = true; }} : bar;
+        const item = bars.length ? {show() { this.hidden = false; }, hide() { this.hidden = true; }, dispose() { this.disposed = true; }} : bar;
         item.id = id; item.alignment = alignment; item.priority = priority; bars.push(item); return item;
       },
       createOutputChannel: name => { channelName = name; return ({
@@ -111,7 +111,9 @@ function openWindow(context, directory, options = {}) {
     const module = {exports: {}};
     cache.set(filename, module);
     const sandbox = {
-      module, exports: module.exports, process, Buffer, AbortController,
+      module, exports: module.exports,
+      process: {...process, env: options.env ?? Object.fromEntries(Object.entries(process.env).filter(([k]) => k.toUpperCase() !== 'DEEPSEEK_API_KEY'))},
+      Buffer, AbortController,
       fetch: options.fetch ?? (async () => { throw new Error('Kiểm thử không cho phép gọi mạng.'); }),
       setTimeout(callback, delay) {
         if (delay <= 400) {
@@ -132,7 +134,7 @@ function openWindow(context, directory, options = {}) {
             await options.beforeRename?.(file, target);
             return fs.promises.rename(file, target);
           }, readFile(file, ...args) {
-          if (['.credentials.json', 'auth.json'].includes(path.basename(file))) {
+          if (['.credentials.json', 'auth.json', 'secrets.json'].includes(path.basename(file))) {
             credentialReads.push(path.basename(file));
             if (!options.credentials) throw new Error('Kiểm thử không đọc thông tin đăng nhập thật.');
             return Promise.resolve(JSON.stringify(options.credentials[path.basename(file)]));
@@ -341,14 +343,18 @@ for (const language of ['en', 'vi']) {
 
 const credentials = {
   '.credentials.json': {claudeAiOauth: {accessToken: 'sk-ant-oat01-FAKE-CHI-DUNG-KIEM-THU'}},
-  'auth.json': {tokens: {access_token: 'eyJhbGciOiJub25lIn0.eyJmYWtlIjp0cnVlfQ.FAKE'}}
+  'auth.json': {tokens: {access_token: 'eyJhbGciOiJub25lIn0.eyJmYWtlIjp0cnVlfQ.FAKE'}},
+  'secrets.json': {entries: {deepseek: 'sk-test-0000-CHI-DUNG-KIEM-THU'}}
 };
 const apiUsage = id => id === 'claude' ? {five_hour: {utilization: 80, resets_at: '2099-01-01T00:00:00Z'}} :
+  id === 'deepseek' ? {is_available: true, balance_infos: [{currency: 'USD', total_balance: '10.00', granted_balance: '0.00', topped_up_balance: '10.00'}]} :
   {rate_limit: {primary_window: {used_percent: 95, limit_window_seconds: 18000, reset_at: 4070908800}}};
+const providerByUrl = url => url.includes('anthropic') ? 'claude' : url.includes('deepseek') ? 'deepseek' : 'codex';
 const disabledProviders = {
-  'providers.claude.enabled': false, 'providers.codex.enabled': false, 'providers.agy.enabled': false
+  'providers.claude.enabled': false, 'providers.codex.enabled': false,
+  'providers.agy.enabled': false, 'providers.deepseek.enabled': false
 };
-for (const id of ['claude', 'codex', 'agy']) {
+for (const id of ['claude', 'codex', 'agy', 'deepseek']) {
   test('Pha 6: ba cửa sổ bật lại ' + id + ' dùng một lease, một lượt gọi và giữ số lỗi tới khi hoàn thành', async context => {
     const directory = storage(context);
     const key = 'providers.' + id + '.enabled';
@@ -382,7 +388,8 @@ for (const id of ['claude', 'codex', 'agy']) {
     assert.equal(calls, id === 'agy' ? 0 : 1);
     assert.equal(windows.reduce((sum, window) => sum + window.callbacks.length, 0), id === 'agy' ? 1 : 0);
     assert.equal(windows[0].read(id).consecutiveErrors, 0);
-    const expected = id === 'claude' ? 'Claude 20% | --' : id === 'codex' ? 'Codex 5% | --' : 'Nhóm 80% | --';
+    const expected = id === 'claude' ? 'Claude 20% | --' : id === 'codex' ? 'Codex 5% | --' :
+      id === 'deepseek' ? 'DeepSeek $10.00' : 'Nhóm 80% | --';
     assert.ok(windows.every(window => window.bar.text === expected));
   });
 }
@@ -405,7 +412,7 @@ for (const language of ['en', 'vi']) for (const failAt of [0, 1]) {
   test('Pha 6: lỗi ghi cấu hình lần ' + (failAt + 1) + ' được che và báo khóa đã ghi bằng ' + language, async context => {
     const window = openWindow(context, storage(context), {defaultProviders: true, credentials, language,
       values: {'providers.agy.enabled': false},
-      fetch: async url => new Response(JSON.stringify(apiUsage(url.includes('anthropic') ? 'claude' : 'codex'))),
+      fetch: async url => new Response(JSON.stringify(apiUsage(providerByUrl(url)))),
       quickPick: () => [],
       beforeUpdate(key) {
         if (key === (failAt === 0 ? 'providers.claude.enabled' : 'providers.codex.enabled')) {
@@ -456,7 +463,7 @@ test('Pha 6: nhãn trợ năng cập nhật khi làm mới và render, giữ tê
   assert.equal(window.bar.accessibilityInformation.label, 'Nhóm: 5 giờ 20%, Tuần không có');
 });
 
-for (const id of ['claude', 'codex']) {
+for (const id of ['claude', 'codex', 'deepseek']) {
   test('Pha 6: tắt ' + id + ' trong lúc complete không ghi nhật ký thành công sau khi đóng controller', async context => {
     const directory = storage(context);
     let writes = 0;
@@ -486,7 +493,7 @@ for (const language of ['vi', 'en']) {
     let offered, settings;
     const window = openWindow(context, storage(context), {defaultProviders: true, credentials, language,
       values: {'providers.codex.enabled': false},
-      fetch: async () => new Response(JSON.stringify(apiUsage('claude'))),
+      fetch: async url => new Response(JSON.stringify(apiUsage(providerByUrl(url)))),
       quickPick(items, options) {
         offered = items; settings = options;
         return items.filter(item => item.id !== 'agy');
@@ -498,7 +505,8 @@ for (const language of ['vi', 'en']) {
     assert.deepEqual(Array.from(offered, item => [item.id, item.label, item.picked, item.description]), [
       ['claude', 'Claude Code', true, language === 'vi' ? 'API Claude Code' : 'Claude Code API'],
       ['codex', 'Codex', false, language === 'vi' ? 'API Codex' : 'Codex API'],
-      ['agy', 'Antigravity', true, 'agy /usage']
+      ['agy', 'Antigravity', true, 'agy /usage'],
+      ['deepseek', 'DeepSeek', true, language === 'vi' ? 'API DeepSeek' : 'DeepSeek API']
     ]);
     assert.deepEqual(window.updates, [
       {key: 'providers.codex.enabled', value: true, target: 1},
@@ -510,14 +518,14 @@ for (const language of ['vi', 'en']) {
 
   test('Pha 5: tắt hết chỉ thông báo một lần và vẫn có lệnh để bật lại, ngôn ngữ ' + language, async context => {
     const window = openWindow(context, storage(context), {defaultProviders: true, credentials, language,
-      fetch: async url => new Response(JSON.stringify(apiUsage(url.includes('anthropic') ? 'claude' : 'codex'))),
+      fetch: async url => new Response(JSON.stringify(apiUsage(providerByUrl(url)))),
       quickPick: () => []});
-    await until(() => window.callbacks.length === 1 && window.bars[1].text === 'Codex 5% | --');
+    await until(() => window.callbacks.length === 1 && window.bars[1].text === 'Codex 5% | --' && window.bars[3].text === 'DeepSeek $10.00');
     window.finish(80);
     await until(() => window.bars[2].text === 'Nhóm 80% | --');
     const count = window.messages.length;
     await window.selectProviders();
-    assert.deepEqual(window.updates, ['claude', 'codex', 'agy'].map(id => ({key: 'providers.' + id + '.enabled', value: false, target: 1})));
+    assert.deepEqual(window.updates, ['claude', 'codex', 'agy', 'deepseek'].map(id => ({key: 'providers.' + id + '.enabled', value: false, target: 1})));
     assert.equal(window.messages.length, count + 1);
     assert.match(window.messages.at(-1), language === 'vi' ? /thanh trạng thái sẽ trống/ : /status bar will be empty/);
     assert.match(window.messages.at(-1), language === 'vi' ? /Chọn nhà cung cấp hiển thị.*Cài đặt/ : /Choose providers to show.*Settings/);
@@ -525,14 +533,14 @@ for (const language of ['vi', 'en']) {
     assert.ok(window.instances.every(instance => instance.disposals === 1));
     assert.ok(window.commands.has('aiQuota.selectProviders'));
     await window.manual();
-    assert.equal(window.bars.length, 3);
+    assert.equal(window.bars.length, 4);
   });
 }
 
 test('Pha 5: Esc không ghi cấu hình, không thông báo cả khi đang tắt hết', async context => {
   for (const values of [undefined, disabledProviders]) {
     const window = openWindow(context, storage(context), {defaultProviders: true, credentials, values,
-      fetch: async url => new Response(JSON.stringify(apiUsage(url.includes('anthropic') ? 'claude' : 'codex')))});
+      fetch: async url => new Response(JSON.stringify(apiUsage(providerByUrl(url))))});
     const count = window.messages.length;
     await window.selectProviders();
     assert.deepEqual(window.updates, []);
@@ -544,7 +552,7 @@ test('Pha 5: Esc không ghi cấu hình, không thông báo cả khi đang tắt
 
 test('Pha 5: giữ nguyên lựa chọn không ghi lại cấu hình hay thông báo', async context => {
   const window = openWindow(context, storage(context), {defaultProviders: true, credentials,
-    fetch: async url => new Response(JSON.stringify(apiUsage(url.includes('anthropic') ? 'claude' : 'codex'))),
+    fetch: async url => new Response(JSON.stringify(apiUsage(providerByUrl(url)))),
     quickPick: items => items.filter(item => item.picked)});
   await window.selectProviders();
   assert.deepEqual(window.updates, []);
@@ -577,7 +585,7 @@ for (const enabled of [true, false]) for (const action of ['selectProviders', 's
   });
 }
 
-for (const id of ['claude', 'codex', 'agy']) {
+for (const id of ['claude', 'codex', 'agy', 'deepseek']) {
   test('Pha 5: tắt rồi bật ' + id + ' giữ kho, ngừng đọc và chỉ làm mới khi đến hạn hoặc thủ công', async context => {
     const directory = storage(context);
     const key = 'providers.' + id + '.enabled';
@@ -594,7 +602,8 @@ for (const id of ['claude', 'codex', 'agy']) {
       await until(() => window.callbacks.length === 1);
       window.finish(80);
     }
-    const expected = id === 'claude' ? 'Claude 20% | --' : id === 'codex' ? 'Codex 5% | --' : 'Nhóm 80% | --';
+    const expected = id === 'claude' ? 'Claude 20% | --' : id === 'codex' ? 'Codex 5% | --' :
+      id === 'deepseek' ? 'DeepSeek $10.00' : 'Nhóm 80% | --';
     await until(() => window.bar.text === expected);
     const stateFile = path.join(directory, 'state-' + id + '.json');
     const before = fs.readFileSync(stateFile, 'utf8');
@@ -610,7 +619,8 @@ for (const id of ['claude', 'codex', 'agy']) {
     assert.equal(window.instances[0].fetches, 1);
     assert.equal(window.callbacks.length, id === 'agy' ? 1 : 0);
     assert.equal(calls, id === 'agy' ? 0 : 1);
-    assert.deepEqual(window.credentialReads, id === 'agy' ? [] : [id === 'claude' ? '.credentials.json' : 'auth.json']);
+    assert.deepEqual(window.credentialReads, id === 'agy' ? [] :
+      [id === 'claude' ? '.credentials.json' : id === 'deepseek' ? 'secrets.json' : 'auth.json']);
     assert.equal(fs.readFileSync(stateFile, 'utf8'), before);
     assert.equal(window.messages.length, messages);
     window.change({[key]: true});
@@ -675,7 +685,7 @@ for (const id of ['claude', 'codex', 'agy']) {
 for (const [remaining, background] of [[31, undefined], [30, 'statusBarItem.warningBackground'], [10, 'statusBarItem.errorBackground']]) {
   test('Pha 4 tích hợp: giới hạn phụ còn ' + remaining + '% áp dụng đúng nền thanh VS Code', async context => {
     const window = openWindow(context, storage(context), {defaultProviders: true, credentials,
-      values: {'providers.codex.enabled': false, 'providers.agy.enabled': false},
+      values: {'providers.codex.enabled': false, 'providers.agy.enabled': false, 'providers.deepseek.enabled': false},
       fetch: async () => new Response(JSON.stringify({limits: [
         {kind: 'session', percent: 16, resets_at: '2099-01-01T00:00:00Z'},
         {kind: 'weekly_all', percent: 29, resets_at: '2099-01-01T00:00:00Z'},
@@ -694,59 +704,67 @@ test('Đa nhà cung cấp: thứ tự, màu riêng, QuickPick gộp, làm mới 
   const calls = [];
   const window = openWindow(context, storage(context), {defaultProviders: true, credentials,
     fetch: async url => {
-      const id = url.includes('anthropic') ? 'claude' : 'codex'; calls.push(id);
+      const id = providerByUrl(url); calls.push(id);
       return new Response(JSON.stringify(apiUsage(id)));
     }});
-  await until(() => window.callbacks.length === 1 && window.bars[0].text === 'Claude 20% | --' && window.bars[1].text === 'Codex 5% | --');
+  await until(() => window.callbacks.length === 1 && window.bars[0].text === 'Claude 20% | --' &&
+    window.bars[1].text === 'Codex 5% | --' && window.bars[3].text === 'DeepSeek $10.00');
   window.finish(80);
   await until(() => window.bars[2].text === 'Nhóm 80% | --');
-  assert.deepEqual(window.bars.map(b => b.priority), [100, 99, 98]);
-  assert.deepEqual(window.bars.map(b => b.id), ['aiQuota.claude', 'aiQuota.codex', 'aiQuota.agy']);
+  assert.deepEqual(window.bars.map(b => b.priority), [100, 99, 98, 97]);
+  assert.deepEqual(window.bars.map(b => b.id), ['aiQuota.claude', 'aiQuota.codex', 'aiQuota.agy', 'aiQuota.deepseek']);
   assert.ok(window.bars.every(b => b.alignment === 2));
-  assert.deepEqual(window.bars.map(b => b.name), ['Claude Code', 'Codex', 'Antigravity']);
+  assert.deepEqual(window.bars.map(b => b.name), ['Claude Code', 'Codex', 'Antigravity', 'DeepSeek']);
   assert.equal(window.bars[0].backgroundColor.id, 'statusBarItem.warningBackground');
   assert.equal(window.bars[1].backgroundColor.id, 'statusBarItem.errorBackground');
   assert.equal(window.bars[2].backgroundColor, undefined);
+  assert.equal(window.bars[3].backgroundColor, undefined);
   for (const bar of window.bars) { assert.equal(bar.command, 'aiQuota.showDetails'); assert.equal(bar.tooltip.isTrusted, false); }
   assert.match(window.bars[0].tooltip.value, /Quota Claude Code/);
   assert.match(window.bars[1].tooltip.value, /Quota Codex/);
+  assert.match(window.bars[3].tooltip.value, /Quota DeepSeek/);
   assert.ok(window.messages.some(m => m.startsWith('Claude Code: ')));
   assert.ok(window.messages.some(m => m.startsWith('Codex: ')));
   await window.details();
-  assert.deepEqual(Array.from(window.items().filter(i => i.kind === -1), i => i.label), ['Claude Code', 'Codex', 'Antigravity', '']);
+  assert.deepEqual(Array.from(window.items().filter(i => i.kind === -1), i => i.label), ['Claude Code', 'Codex', 'Antigravity', 'DeepSeek', '']);
   assert.deepEqual(Array.from(window.items().slice(-4), i => i.action), ['refresh', 'log', 'selectProviders', 'settings']);
   const pending = window.manual();
-  await until(() => window.callbacks.length === 2 && calls.length === 4);
+  await until(() => window.callbacks.length === 2 && calls.length === 6);
   window.finish(80); await pending;
-  assert.ok(window.logs.every(line => /^\[(Claude Code|Codex|Antigravity)\] /.test(line)));
+  assert.ok(window.logs.every(line => /^\[(Claude Code|Codex|Antigravity|DeepSeek)\] /.test(line)));
   const visible = JSON.stringify([window.bars, window.items(), window.messages, window.logs,
-    window.read('claude'), window.read('codex'), window.read('agy')]);
-  for (const token of [credentials['.credentials.json'].claudeAiOauth.accessToken, credentials['auth.json'].tokens.access_token]) assert.ok(!visible.includes(token));
+    window.read('claude'), window.read('codex'), window.read('agy'), window.read('deepseek')]);
+  for (const token of [
+    credentials['.credentials.json'].claudeAiOauth.accessToken,
+    credentials['auth.json'].tokens.access_token,
+    credentials['secrets.json'].entries.deepseek
+  ]) assert.ok(!visible.includes(token));
 });
 test('Đa nhà cung cấp: lỗi xác thực hoặc ném ngoại lệ không ngăn nhà cung cấp khác', async context => {
   const directory = storage(context);
   const window = openWindow(context, directory, {defaultProviders: true, credentials,
     fetch: async url => url.includes('anthropic') ?
       new Response(JSON.stringify({error: credentials['.credentials.json'].claudeAiOauth.accessToken}), {status: 401}) :
-      new Response(JSON.stringify(apiUsage('codex')))});
-  await until(() => window.callbacks.length === 1 && window.bars[0].text.includes('chưa đăng nhập') && window.bars[1].text === 'Codex 5% | --');
+      new Response(JSON.stringify(apiUsage(providerByUrl(url))))});
+  await until(() => window.callbacks.length === 1 && window.bars[0].text.includes('chưa đăng nhập') &&
+    window.bars[1].text === 'Codex 5% | --' && window.bars[3].text === 'DeepSeek $10.00');
   assert.equal(window.read('claude').error.type, 'auth');
   assert.equal(window.bars[0].backgroundColor, undefined);
   window.finish(70); await until(() => window.bars[2].text === 'Nhóm 70% | --');
   assert.ok(!JSON.stringify([window.bars, window.logs, window.read('claude')]).includes(credentials['.credentials.json'].claudeAiOauth.accessToken));
-  // Buộc claim của Claude lỗi ở hệ thống tệp, rồi xác nhận lệnh làm mới chung vẫn chờ Codex và agy.
+  // Buộc claim của Claude lỗi ở hệ thống tệp, rồi xác nhận lệnh làm mới chung vẫn chờ Codex, agy và DeepSeek.
   fs.unlinkSync(path.join(directory, 'state-claude.json'));
   fs.mkdirSync(path.join(directory, 'state-claude.json'));
   const pending = window.manual();
   await until(() => window.callbacks.length === 2);
   window.finish(60); const results = await pending;
-  assert.equal(results.length, 3); assert.equal(window.bars[2].text, 'Nhóm 60% | --');
+  assert.equal(results.length, 4); assert.equal(window.bars[2].text, 'Nhóm 60% | --');
   assert.ok(window.logs.some(line => line.startsWith('[Claude Code] ') && line.includes('Không cập nhật được trạng thái')));
 });
 test('Đa nhà cung cấp: tắt không tạo mục hay gọi; bật/tắt khi đang chạy hủy lượt riêng', async context => {
   let calls = 0;
   const window = openWindow(context, storage(context), {defaultProviders: true, credentials,
-    values: {'providers.claude.enabled': false, 'providers.codex.enabled': false, 'providers.agy.enabled': false},
+    values: {...disabledProviders},
     fetch: () => {calls++; return new Promise(() => {});}});
   await window.manual(); assert.equal(window.bars.length, 0); assert.equal(calls, 0); assert.equal(window.callbacks.length, 0);
   await window.details(); assert.match(window.items()[0].label, /Chưa bật/);
@@ -762,7 +780,7 @@ test('Đa nhà cung cấp: tắt không tạo mục hay gọi; bật/tắt khi �
 });
 test('Đa nhà cung cấp: Claude chậm vẫn cho Codex cập nhật ngay', async context => {
   const window = openWindow(context, storage(context), {defaultProviders: true, credentials,
-    values: {'providers.agy.enabled': false},
+    values: {'providers.agy.enabled': false, 'providers.deepseek.enabled': false},
     fetch: url => url.includes('anthropic') ? new Promise(() => {}) : Promise.resolve(new Response(JSON.stringify(apiUsage('codex'))))});
   await until(() => window.bars[1].text === 'Codex 5% | --');
   assert.match(window.bars[0].text, /sync~spin/);
@@ -773,8 +791,9 @@ test('Đa nhà cung cấp: Claude chậm vẫn cho Codex cập nhật ngay', asy
 test('Pha 3 mục 3: QuickPick giữ tiêu đề chung, từng nguồn có giờ cập nhật và dấu dữ liệu cũ', async context => {
   for (const language of ['vi', 'en']) {
     const window = openWindow(context, storage(context), {defaultProviders: true, credentials, language,
-      fetch: async url => new Response(JSON.stringify(apiUsage(url.includes('anthropic') ? 'claude' : 'codex')))});
-    await until(() => window.callbacks.length === 1 && window.bars[0].text === 'Claude 20% | --' && window.bars[1].text === 'Codex 5% | --');
+      fetch: async url => new Response(JSON.stringify(apiUsage(providerByUrl(url))))});
+    await until(() => window.callbacks.length === 1 && window.bars[0].text === 'Claude 20% | --' &&
+      window.bars[1].text === 'Codex 5% | --' && window.bars[3].text === 'DeepSeek $10.00');
     window.finish(60); await until(() => window.bars[2].text === 'Nhóm 60% | --');
     await window.details();
     assert.equal(window.pickerOptions().title, 'AI Quota Bar');
@@ -798,7 +817,7 @@ test('Pha 3 mục 6: làm mới thủ công trong Retry-After ghi đúng một d
   for (const language of ['vi', 'en']) {
     let calls = 0;
     const window = openWindow(context, storage(context), {defaultProviders: true, credentials, language,
-      values: {'providers.claude.enabled': false, 'providers.agy.enabled': false},
+      values: {'providers.claude.enabled': false, 'providers.agy.enabled': false, 'providers.deepseek.enabled': false},
       fetch: async () => { calls++; return new Response('', {status: 429, headers: {'Retry-After': '900'}}); }});
     await until(() => window.logs.some(line => line.includes(language === 'vi' ? 'Quá nhiều yêu cầu' : 'Too many requests')));
     const count = window.logs.length;
@@ -814,7 +833,7 @@ test('Pha 3 mục 7: Retry-After chưa lưu vẫn nhận thành công mới hơn
   const lock = path.join(directory, 'state-codex.lock');
   let firstCalls = 0;
   const first = openWindow(context, directory, {defaultProviders: true, credentials,
-    values: {'providers.claude.enabled': false, 'providers.agy.enabled': false},
+    values: {'providers.claude.enabled': false, 'providers.agy.enabled': false, 'providers.deepseek.enabled': false},
     fetch: async () => {
       firstCalls++;
       if (firstCalls === 1) return new Response(JSON.stringify(apiUsage('codex')));
@@ -830,7 +849,7 @@ test('Pha 3 mục 7: Retry-After chưa lưu vẫn nhận thành công mới hơn
   assert.equal(first.bar.text, '$(history) Codex 5% | --');
   let secondCalls = 0;
   const second = openWindow(context, directory, {defaultProviders: true, credentials,
-    values: {'providers.claude.enabled': false, 'providers.agy.enabled': false},
+    values: {'providers.claude.enabled': false, 'providers.agy.enabled': false, 'providers.deepseek.enabled': false},
     fetch: async () => { secondCalls++; return new Response(JSON.stringify({rate_limit: {
       primary_window: {used_percent: 20, limit_window_seconds: 18000, reset_at: 4070908800}
     }})); }});
@@ -846,4 +865,64 @@ test('Pha 3 mục 7: Retry-After chưa lưu vẫn nhận thành công mới hơn
   assert.equal(first.bar.text, 'Codex 80% | --'); assert.equal(firstCalls, 2);
   assert.equal(first.logs.length, count + 1);
   assert.match(first.logs.at(-1), /Đang chờ giới hạn tần suất tới \d{2}:\d{2}/);
+});
+
+test('DeepSeek tích hợp: ưu tiên DEEPSEEK_API_KEY, bảng chú giải, QuickPick, cảnh báo số dư thấp, 402 và không lộ khóa', async context => {
+  const directory = storage(context);
+  let step = 0;
+  const responses = [
+    () => new Response(JSON.stringify(apiUsage('deepseek'))),
+    () => new Response(JSON.stringify({
+      is_available: true,
+      balance_infos: [{currency: 'USD', total_balance: '1.50', granted_balance: '0.50', topped_up_balance: '1.00'}]
+    })),
+    () => new Response(JSON.stringify({error: 'Insufficient Balance sk-test-0000'}), {status: 402})
+  ];
+  const window = openWindow(context, directory, {
+    defaultProviders: true,
+    credentials,
+    env: {DEEPSEEK_API_KEY: 'sk-test-0000'},
+    values: {'providers.claude.enabled': false, 'providers.codex.enabled': false, 'providers.agy.enabled': false},
+    fetch: async () => responses[Math.min(step++, responses.length - 1)]()
+  });
+  await until(() => window.bar.text === 'DeepSeek $10.00');
+  assert.equal(window.credentialReads.length, 0);
+  assert.equal(window.bar.backgroundColor, undefined);
+  assert.ok(window.bar.tooltip.value.includes('| Tiền tệ | Tổng | Đã nạp | Được tặng |'));
+  assert.ok(window.bar.tooltip.value.includes('| USD | $10.00 | $10.00 | $0.00 |'));
+  await window.details();
+  const balanceItem = window.items().find(item => item.label === 'USD: $10.00');
+  assert.ok(balanceItem);
+  assert.equal(balanceItem.description, 'đã nạp: $10.00, được tặng: $0.00');
+
+  await window.manual();
+  await until(() => window.bar.text === 'DeepSeek $1.50');
+  assert.equal(window.bar.backgroundColor?.id, 'statusBarItem.warningBackground');
+  assert.ok(window.messages.includes('DeepSeek: DeepSeek (USD) số dư thấp, còn $1.50.'));
+
+  await window.manual();
+  await until(() => window.bar.text === '$(history) DeepSeek: hết số dư');
+  assert.equal(window.bar.backgroundColor?.id, 'statusBarItem.errorBackground');
+  assert.ok(window.logs.some(line => line.includes('[DeepSeek]') && line.includes('402') && line.includes('nguồn khóa: env')));
+
+  const visible = JSON.stringify([window.bars, window.items(), window.messages, window.logs, window.read('deepseek')]);
+  assert.ok(!visible.includes('sk-test-0000'));
+});
+
+test('DeepSeek: không có khóa thì ẩn mục thanh trạng thái thay vì báo lỗi, còn khóa bị từ chối (401) vẫn hiện lỗi', async context => {
+  const values = {'providers.claude.enabled': false, 'providers.codex.enabled': false, 'providers.agy.enabled': false, 'providers.deepseek.enabled': true};
+  const missing = openWindow(context, storage(context), {defaultProviders: true, values});
+  const errorType = window => { try { return window.read('deepseek').error?.type; } catch { return undefined; } };
+  await until(() => errorType(missing) === 'no-key');
+  await until(() => missing.bar.hidden === true);
+  assert.equal(missing.messages.length, 0);
+  const rejected = openWindow(context, storage(context), {defaultProviders: true, values,
+    credentials: {'secrets.json': {entries: {deepseek: 'sk-test-0000'}}},
+    fetch: async () => new Response('{}', {status: 401, headers: {'content-type': 'application/json'}})});
+  await until(() => errorType(rejected) === 'auth');
+  assert.notEqual(rejected.bar.hidden, true);
+  await missing.details();
+  assert.ok(!missing.items().some(item => /DeepSeek/.test(item.label)), 'Show details không được liệt kê DeepSeek khi không có khóa');
+  await rejected.details();
+  assert.ok(rejected.items().some(item => /DeepSeek/.test(item.label)));
 });

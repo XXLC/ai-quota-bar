@@ -40,6 +40,17 @@ function display(state, now, config = {}, provider) {
   const stale = isStale(state, now, values);
   const rows = (state.buckets || []).map(bucket => {
     const severity = level(bucket, now, values);
+    if (bucket.totalBalance != null) {
+      const value = labelText(bucket.available === false ?
+        t('balance.depletedValue', bucket.totalBalance) : bucket.totalBalance);
+      return {
+        ...bucket, groupLabel: labelText(bucket.groupLabel),
+        windowLabel: labelText(bucket.windowLabel),
+        toppedUpBalance: labelText(bucket.toppedUpBalance || '$0.00'),
+        grantedBalance: labelText(bucket.grantedBalance || '$0.00'),
+        severity, value, isBalance: true
+      };
+    }
     return {
       ...bucket, groupLabel: labelText(bucket.groupLabel), windowLabel: labelText(bucket.windowKey === '5h' ? t('window.fiveHour') :
         bucket.windowKey === 'weekly' ? t('window.weekly') : bucket.windowLabel),
@@ -53,11 +64,20 @@ function display(state, now, config = {}, provider) {
     groups.get(row.groupName).push(row);
   }
   const selected = [...groups.values()].map(items => {
+    if (items[0].isBalance) {
+      return items.find(item => item.severity === 'critical') ||
+        items.find(item => item.severity === 'warning') || items[0];
+    }
     const valid = items.filter(item => item.severity !== 'unknown');
     return lowest(valid.length ? valid : items);
   });
   let severity = worstLevel(selected.map(bucket => bucket.severity));
   const summaries = [...groups.values()].map(items => {
+    if (items[0].isBalance) {
+      const text = items[0].groupLabel + ' ' + items.map(row => row.value).join(' | ');
+      const label = items[0].groupLabel + ': ' + items.map(row => row.windowLabel + ' ' + row.value).join(', ');
+      return {text, label};
+    }
     const fiveHour = lowest(items.filter(row => row.windowKey === '5h'));
     const weekly = lowest(items.filter(row => row.windowKey === 'weekly'));
     const others = items.filter(row => row.windowKey.startsWith('other:'));
@@ -79,16 +99,20 @@ function display(state, now, config = {}, provider) {
   if (!text) {
     text = state.runningSince != null ? provider?.name || t('channel.name') :
       state.error?.type === 'not-found' ? t('bar.notFound', provider?.name || t('provider.agy')) :
+      state.error?.code === 402 ? t('bar.noBalance', provider?.label || provider?.name || t('provider.deepseek')) :
       provider ? t('bar.providerError', provider.label || provider.name) : t('bar.error');
   }
-  if (provider && state.error?.type === 'auth') {
+  if (state.error?.code === 402) {
+    text = t('bar.noBalance', provider?.label || provider?.name || t('provider.deepseek'));
+    severity = 'critical';
+  } else if (provider && state.error?.type === 'auth') {
     text = t('bar.auth', provider.label || provider.name);
     severity = 'ok';
   }
-  text = (stale && rows.length ? '$(history) ' : !rows.length && state.runningSince == null ? '$(error) ' : '') + text;
+  text = (stale && rows.length ? '$(history) ' : (!rows.length || state.error?.code === 402) && state.runningSince == null ? '$(error) ' : '') + text;
   if (state.manualRefresh || (!rows.length && state.runningSince != null)) text = '$(sync~spin) ' + text;
-  const accessibilityLabel = !rows.length || state.error?.type === 'auth' ? text.replace(/\$\([^)]+\)\s*/g, '') :
-    summaries.map(group => group.label).join('; ');
+  const accessibilityLabel = !rows.length || state.error?.type === 'auth' || state.error?.code === 402 ?
+    text.replace(/\$\([^)]+\)\s*/g, '') : summaries.map(group => group.label).join('; ');
   const loading = !rows.length && state.runningSince != null && !state.error;
   const error = sanitize(state.error?.message || t('error.readQuota'), 200);
   let tooltip = provider ? t('tooltip.providerHeader', escapeMarkdown(provider.name)) : t('tooltip.header');
@@ -98,6 +122,16 @@ function display(state, now, config = {}, provider) {
   if (!rows.length) {
     tooltip += loading ? t('tooltip.loading') : '$(error) ' + escapeMarkdown(error) +
       t('tooltip.openLog');
+  } else if (rows[0].isBalance) {
+    tooltip += t('tooltip.balanceColumns');
+    for (const row of rows) {
+      const value = escapeMarkdown(row.value + levelLabel(row.severity));
+      tooltip += '| ' + [escapeMarkdown(row.windowLabel),
+        row.severity === 'critical' ? '**' + value + '**' : value,
+        escapeMarkdown(row.toppedUpBalance), escapeMarkdown(row.grantedBalance)].join(' | ') + ' |\n';
+    }
+    tooltip += t('tooltip.balanceUpdated', clock(state.lastSuccessAt), ago(state.lastSuccessAt, now),
+      values.deepseekWarningThreshold.toFixed(2));
   } else {
     tooltip += t('tooltip.columns');
     for (const row of rows) {
@@ -115,7 +149,8 @@ function display(state, now, config = {}, provider) {
       items.push({
         label: levelIcon(row.severity) + (provider && groups.size > 1 ? row.groupLabel + ' ' : '') +
           row.windowLabel + ': ' + row.value + levelLabel(row.severity),
-        description: t('picker.limit', row.reset, row.remaining)
+        description: row.isBalance ? t('picker.balance', row.toppedUpBalance, row.grantedBalance) :
+          t('picker.limit', row.reset, row.remaining)
       });
     }
   }
@@ -129,9 +164,17 @@ function display(state, now, config = {}, provider) {
   };
 }
 function notification(result, provider) {
-  return (provider ? provider.name + ': ' : t('notification.prefix')) + result.events.map(({bucket, recovered}) =>
-    safeText(bucket.groupLabel) + ' (' + safeText(bucket.windowKey === '5h' ? t('window.fiveHour') : bucket.windowKey === 'weekly' ? t('window.weekly') : bucket.windowLabel) + ') ' +
-    (recovered ? t('notification.recovered', bucket.percent) :
-      t('notification.remaining', bucket.percent, resetTime(bucket.resetAt)))).join('; ') + '.';
+  return (provider ? provider.name + ': ' : t('notification.prefix')) + result.events.map(({bucket, level: bucketLevel, recovered}) => {
+    const window = bucket.windowKey === '5h' ? t('window.fiveHour') :
+      bucket.windowKey === 'weekly' ? t('window.weekly') : bucket.windowLabel;
+    const detail = bucket.totalBalance != null ? (recovered ?
+      t('notification.balanceRecovered', safeText(bucket.totalBalance)) :
+      bucketLevel === 'critical' || bucket.available === false ?
+      t('notification.balanceDepleted', safeText(bucket.totalBalance)) :
+      t('notification.balanceLow', safeText(bucket.totalBalance))) :
+      (recovered ? t('notification.recovered', bucket.percent) :
+        t('notification.remaining', bucket.percent, resetTime(bucket.resetAt)));
+    return safeText(bucket.groupLabel) + ' (' + safeText(window) + ') ' + detail;
+  }).join('; ') + '.';
 }
 module.exports = {escapeMarkdown, safeText, resetTime, countdown, ago, display, notification, sanitize, clock};

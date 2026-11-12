@@ -76,8 +76,8 @@ test('Lỗi giữ dữ liệu; thủ công xóa backoff; thành công xóa lỗi
 test('Thông báo tắt vẫn lưu mức qua lần đọc sau',async()=>{const fs=memoryFs(),s=createStore({directory:'/kho',fs,now:()=>1000});await s.claim({});const r=await s.complete({buckets:[bucket]},{notificationEnabled:false});assert.equal(r.notification.events.length,0);assert.equal((await s.read()).levels['agy|Nhóm|5h'],'critical');});
 test('Manifest hợp lệ, đủ khóa và giới hạn',()=>{
  const fs=require('node:fs');const manifest=JSON.parse(fs.readFileSync(require('node:path').join(__dirname,'../package.json'),'utf8').replace(/^\uFEFF/,''));
- const props=manifest.contributes.configuration.properties;assert.equal(Object.keys(props).length,11);assert.equal(props['aiQuota.agyPath'].scope,'machine');
- for(const key of ['refreshInterval','timeout','warningThreshold','criticalThreshold']){assert.equal(typeof props['aiQuota.'+key].minimum,'number');assert.equal(typeof props['aiQuota.'+key].maximum,'number');}
+ const props=manifest.contributes.configuration.properties;assert.equal(Object.keys(props).length,13);assert.equal(props['aiQuota.agyPath'].scope,'machine');
+ for(const key of ['refreshInterval','timeout','warningThreshold','criticalThreshold','deepseekWarningThreshold']){assert.equal(typeof props['aiQuota.'+key].minimum,'number');assert.equal(typeof props['aiQuota.'+key].maximum,'number');}
  assert.deepEqual(manifest.extensionKind,['ui']);assert.equal(manifest.capabilities.untrustedWorkspaces.supported,true);assert.equal(manifest.capabilities.virtualWorkspaces,true);
 });
 test('Không chạy lượt mới trong lúc đang giết cây',async()=>{

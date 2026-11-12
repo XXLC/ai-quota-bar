@@ -10,12 +10,18 @@ function configuration(config) {
     timeout: clamp(values.timeout, 5, 300, 45),
     warningThreshold,
     criticalThreshold: Math.min(warningThreshold, clamp(values.criticalThreshold, 0, 100, 10)),
+    deepseekWarningThreshold: clamp(values.deepseekWarningThreshold, 0, 10000, 2),
     notificationEnabled: values.notificationEnabled !== false
   };
 }
 function level(bucket, now, config) {
   const values = configuration(config);
   if (bucket.resetAt !== null && bucket.resetAt <= now) return 'unknown';
+  if (typeof bucket.balance === 'number') {
+    if (bucket.available === false) return 'critical';
+    if (bucket.balance <= 0) return 'ok';
+    return bucket.balance <= values.deepseekWarningThreshold ? 'warning' : 'ok';
+  }
   if (bucket.percent <= values.criticalThreshold) return 'critical';
   return bucket.percent <= values.warningThreshold ? 'warning' : 'ok';
 }
