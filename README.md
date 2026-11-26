@@ -41,7 +41,7 @@ Why this source: Claude Code stores an OAuth access token locally after you sign
 On each refresh for Claude, the extension:
 
 1. Reads `<CLAUDE_CONFIG_DIR or ~/.claude>/.credentials.json` (or the directory configured in `aiQuota.claudeConfigDir`), extracts `claudeAiOauth.accessToken`, and checks `claudeAiOauth.expiresAt` (as well as JWT `exp` if present). If the file or token is missing or already expired, it immediately reports an `auth` error without calling the network.
-2. Sends `GET https://api.anthropic.com/api/oauth/usage` with headers `Authorization: Bearer <accessToken>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.0`, and `anthropic-beta: oauth-2025-04-20`.
+2. Sends `GET https://api.anthropic.com/api/oauth/usage` with headers `Authorization: Bearer <accessToken>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.1`, and `anthropic-beta: oauth-2025-04-20`.
 3. Uses Node's built-in `fetch` first. Only when `fetch` receives HTTP `403` with a response body containing `"Request not allowed"` (Anthropic's edge rejecting Node's TLS ClientHello fingerprint), the extension falls back once to the system `curl` binary (`<%SystemRoot% or C:\Windows>\System32\curl.exe` on Windows, `curl` on macOS/Linux) with `-q --config -`, passing the URL and headers through `stdin` so the token never appears in process command-line arguments.
 4. Parses the JSON response, preferring the `limits` array (introduced in 08/2026, which includes per-model limits) when it contains at least one valid entry, and falling back to the legacy top-level fields otherwise (the two formats are not mixed):
    - From `limits`: maps `kind === 'session'` (or unrecognized `kind` with `group === 'session'`) to 5-hour (`5h`); maps `kind === 'weekly_all'` to Weekly (`weekly`); maps `kind === 'weekly_scoped'` (or unrecognized `kind` with `group === 'weekly'`) to `other:<label>`, where `<label>` is taken from the API's `scope.model.display_name` (falling back to `scope.surface`, or `Weekly (<kind>)`), sanitized to at most 40 characters. If two entries share the same window key, the one with the lower unrounded remaining fraction is kept.
@@ -55,7 +55,7 @@ Why this source: Codex CLI saves its OAuth tokens in `auth.json`. Calling the ba
 On each refresh for Codex, the extension:
 
 1. Reads `<CODEX_HOME or ~/.codex>/auth.json` (or the directory configured in `aiQuota.codexHome`), extracts `tokens.access_token` (and `tokens.account_id` if present), and checks JWT `exp` locally.
-2. Sends `GET https://chatgpt.com/backend-api/wham/usage` with `Authorization: Bearer <access_token>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.0`, and, when `account_id` is available, `chatgpt-account-id: <account_id>`. On HTTP `401`, or HTTP `403` with a JSON `Content-Type` (`application/json` or `+json`), it reports an `auth` error; a non-JSON `403` (such as an HTML block page) is reported as `HTTP 403`.
+2. Sends `GET https://chatgpt.com/backend-api/wham/usage` with `Authorization: Bearer <access_token>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.1`, and, when `account_id` is available, `chatgpt-account-id: <account_id>`. On HTTP `401`, or HTTP `403` with a JSON `Content-Type` (`application/json` or `+json`), it reports an `auth` error; a non-JSON `403` (such as an HTML block page) is reported as `HTTP 403`.
 3. Reads `rate_limit.primary_window` and `rate_limit.secondary_window` from the JSON response (accepting finite numbers or numeric strings for `used_percent`, `limit_window_seconds`, `reset_at`, and `reset_after_seconds`).
 4. Maps `limit_window_seconds` to a language-independent window key and localized label: `18000` becomes `5h` (`5-hour`), `604800` becomes `weekly` (`Weekly`), any other positive duration becomes `other:<seconds>s` (labeled in whole days, whole hours, or rounded minutes), and a window without `limit_window_seconds` becomes `other:primary` or `other:secondary` (labeled `Limit`).
 5. Converts `used_percent` into the remaining percentage (`0-100`, rounded down) under the group label `Codex`, clamping any `used_percent > 100` to `0%` remaining (`critical` level). Computes the reset time from `reset_at * 1000` when present, or `now + reset_after_seconds * 1000` otherwise.
@@ -70,7 +70,9 @@ On each refresh for Antigravity, the extension runs:
 agy --output-format json -p "/usage"
 ```
 
-The command is spawned directly (no shell), with the hidden-window option (`windowsHide`), the home directory as working directory, the environment variable `NO_COLOR=1`, a 256 KiB output limit, and `stdin` closed immediately. The extension reads the JSON result (field `command.data.groups`, which carries the remaining fraction as a floating-point number); if that field is missing, it falls back to the TAB-separated text table in the `response` field, but only when `conversation_id` is present and is exactly the empty string. In both JSON and TSV modes, a bucket is mapped to the 5-hour window (`5h`) when `window === '5h'` or its label (after stripping ` Limit Remaining`) matches `/five[\s-]*hour/i` (accepting `Five-Hour`, `Five Hour`, `FiveHour`, and similar spacing or hyphenation), mapped to the weekly window (`weekly`) when `window === 'weekly'` or its label matches `/weekly/i`, and mapped to `other:<label>` otherwise. `stdout` must contain one JSON object; surrounding whitespace or blank lines are accepted, but other content outside the JSON is treated as an error.
+The command is spawned directly (no shell), with the hidden-window option (`windowsHide`), the home directory as working directory, the environment variables `NO_COLOR=1` and `AGY_CLI_DISABLE_AUTO_UPDATE=true`, a 256 KiB output limit, and `stdin` closed immediately. The extension reads the JSON result (field `command.data.groups`, which carries the remaining fraction as a floating-point number); if that field is missing, it falls back to the TAB-separated text table in the `response` field, but only when `conversation_id` is present and is exactly the empty string. In both JSON and TSV modes, a bucket is mapped to the 5-hour window (`5h`) when `window === '5h'` or its label (after stripping ` Limit Remaining`) matches `/five[\s-]*hour/i` (accepting `Five-Hour`, `Five Hour`, `FiveHour`, and similar spacing or hyphenation), mapped to the weekly window (`weekly`) when `window === 'weekly'` or its label matches `/weekly/i`, and mapped to `other:<label>` otherwise. `stdout` must contain one JSON object; surrounding whitespace or blank lines are accepted, but other content outside the JSON is treated as an error.
+
+`AGY_CLI_DISABLE_AUTO_UPDATE=true` disables the `agy` self-updater for this call only. Otherwise, when more than 15 minutes have passed since the last check, `agy` starts a background update process that has no console, and the `agy --version` child of that process makes a terminal window flash on Windows (observed with `agy` 1.5.18). The value must be `true`; `1` is ignored. `agy` still updates itself when you run it yourself.
 
 Measured on the author's machine, Windows 11, `agy` 1.4.12:
 
@@ -96,7 +98,7 @@ On each refresh for DeepSeek, the extension:
    - First checks the `DEEPSEEK_API_KEY` environment variable.
    - If unset or empty, reads `~/.codewhale/secrets/secrets.json` (JSON format `{"entries": {"<name>": "sk-..."}}`), using only `entries.deepseek` (other entries, such as keys of other services, are never read or sent).
    - If neither source has a valid token, it immediately records a `no-key` state (`missing_key`) without calling the network and **hides the DeepSeek status bar item** instead of showing an error, so machines without DeepSeek see nothing. A key that is present but rejected by the server (HTTP `401`) is still reported as an `auth` error and the item stays visible.
-2. Sends `GET https://api.deepseek.com/user/balance` with headers `Authorization: Bearer <key>`, `Accept: application/json`, and `User-Agent: ai-quota-bar/0.2.0`.
+2. Sends `GET https://api.deepseek.com/user/balance` with headers `Authorization: Bearer <key>`, `Accept: application/json`, and `User-Agent: ai-quota-bar/0.2.1`.
 3. Parses `is_available` and the `balance_infos` array (`currency`, `total_balance`, `granted_balance`, `topped_up_balance`). Currencies are sorted with `USD` (`$`) first, `CNY` (`¥`) second, and any other currencies afterward (`<CURRENCY> <amount>`), formatted to two decimal places (for example `DeepSeek $10.00` or `DeepSeek $10.00 | ¥50.00`).
 4. Evaluates balance health and depleted states:
    - When `is_available` is `false`, `total_balance` is `0` (with no positive balance in another currency), or the server returns HTTP `402` (`Insufficient Balance`), the status bar clearly shows the depleted state (`DeepSeek $0.00 (no balance)` or `DeepSeek: no balance`) with the `critical` red background (`statusBarItem.errorBackground`).
@@ -162,27 +164,27 @@ cd ai-quota-bar
 npx @vscode/vsce@3.6.0 package
 ```
 
-This produces `ai-quota-bar-0.2.0.vsix`. The project has no runtime npm dependencies (`fetch` and Node built-in modules only), so `npm install` is not required before packaging.
+This produces `ai-quota-bar-0.2.1.vsix`. The project has no runtime npm dependencies (`fetch` and Node built-in modules only), so `npm install` is not required before packaging.
 
-If you obtain a prebuilt `ai-quota-bar-0.2.0.vsix` from a future release, verify its SHA-256 hash before installing:
+If you obtain a prebuilt `ai-quota-bar-0.2.1.vsix` from a future release, verify its SHA-256 hash before installing:
 
 ```powershell
-Get-FileHash ai-quota-bar-0.2.0.vsix -Algorithm SHA256
+Get-FileHash ai-quota-bar-0.2.1.vsix -Algorithm SHA256
 ```
 
 Install into VS Code:
 
 ```powershell
-code --install-extension ai-quota-bar-0.2.0.vsix
+code --install-extension ai-quota-bar-0.2.1.vsix
 ```
 
 Install into Antigravity IDE (the command script is at `%LOCALAPPDATA%\Programs\Antigravity IDE\bin\antigravity-ide.cmd`; if that `bin` directory is not on your `PATH`, call it by its full path):
 
 ```powershell
-antigravity-ide --install-extension ai-quota-bar-0.2.0.vsix
+antigravity-ide --install-extension ai-quota-bar-0.2.1.vsix
 ```
 
-Or in either application's UI: Extensions view, `...` menu, "Install from VSIX...", then pick `ai-quota-bar-0.2.0.vsix`.
+Or in either application's UI: Extensions view, `...` menu, "Install from VSIX...", then pick `ai-quota-bar-0.2.1.vsix`.
 
 After installing `ai-quota-bar`, disable or uninstall `XXLC.agy-quota-bar` and disable any standalone Claude Code, Codex, Antigravity, or DeepSeek quota extensions so they do not make duplicate API calls or show duplicate status bar items.
 

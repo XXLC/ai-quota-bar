@@ -37,7 +37,7 @@ test('Pha 5: Settings xếp bốn công tắc đầu tiên, các mục còn lạ
 });
 
 test('Pha 5: lệnh luôn có trong manifest, đủ khóa đối xứng và bản dịch không có biểu tượng', () => {
-  assert.equal(manifest.version, '0.2.0');
+  assert.equal(manifest.version, '0.2.1');
   const command = manifest.contributes.commands.find(item => item.command === 'aiQuota.selectProviders');
   assert.deepEqual(command, {
     command: 'aiQuota.selectProviders', title: '%command.selectProviders%', category: '%command.category%'

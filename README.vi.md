@@ -41,7 +41,7 @@ Vì sao dùng nguồn này: Sau khi bạn đăng nhập, Claude Code lưu sẵn 
 Mỗi lần làm mới Claude, tiện ích:
 
 1. Đọc tệp `<CLAUDE_CONFIG_DIR hoặc ~/.claude>/.credentials.json` (hoặc thư mục cấu hình trong `aiQuota.claudeConfigDir`), lấy `claudeAiOauth.accessToken` và kiểm tra `claudeAiOauth.expiresAt` (cùng trường `exp` của JWT nếu có). Nếu tệp hoặc token bị thiếu hay đã hết hạn, tiện ích báo lỗi `auth` ngay mà không gọi mạng.
-2. Gửi `GET https://api.anthropic.com/api/oauth/usage` với header `Authorization: Bearer <accessToken>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.0` và `anthropic-beta: oauth-2025-04-20`.
+2. Gửi `GET https://api.anthropic.com/api/oauth/usage` với header `Authorization: Bearer <accessToken>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.1` và `anthropic-beta: oauth-2025-04-20`.
 3. Dùng `fetch` dựng sẵn của Node trước. Chỉ khi `fetch` nhận mã HTTP `403` có nội dung phản hồi chứa `"Request not allowed"` (máy chủ biên của Anthropic từ chối dấu vân tay TLS ClientHello của Node), tiện ích mới chuyển sang dự phòng một lần bằng chương trình `curl` của hệ thống (`<%SystemRoot% hoặc C:\Windows>\System32\curl.exe` trên Windows, `curl` trên macOS/Linux) với `-q --config -`, truyền địa chỉ và header qua `stdin` để token không bao giờ xuất hiện trong dòng lệnh của tiến trình.
 4. Phân tích phản hồi JSON, ưu tiên mảng `limits` (Anthropic bổ sung từ 08/2026, có giới hạn theo từng model) khi mảng này có ít nhất một phần tử hợp lệ, và dự phòng về các trường cấp cao nhất kiểu cũ nếu không có (không trộn lẫn hai định dạng):
    - Từ mảng `limits`: ánh xạ `kind === 'session'` (hoặc `kind` lạ có `group === 'session'`) sang 5 giờ (`5h`); ánh xạ `kind === 'weekly_all'` sang Tuần (`weekly`); ánh xạ `kind === 'weekly_scoped'` (hoặc `kind` lạ có `group === 'weekly'`) sang `other:<nhãn>`, trong đó `<nhãn>` lấy trực tiếp từ `scope.model.display_name` của API (nếu thiếu thì lấy `scope.surface`, hoặc `Tuần (<kind>)`), đã làm sạch và giới hạn tối đa 40 ký tự. Nếu hai mục trùng khóa cửa sổ, mục có tỷ lệ còn lại chưa làm tròn thấp hơn được giữ lại.
@@ -55,7 +55,7 @@ Vì sao dùng nguồn này: Codex CLI lưu sẵn OAuth token trong `auth.json`. 
 Mỗi lần làm mới Codex, tiện ích:
 
 1. Đọc tệp `<CODEX_HOME hoặc ~/.codex>/auth.json` (hoặc thư mục cấu hình trong `aiQuota.codexHome`), lấy `tokens.access_token` (và `tokens.account_id` nếu có), đồng thời kiểm tra hạn `exp` của JWT.
-2. Gửi `GET https://chatgpt.com/backend-api/wham/usage` với header `Authorization: Bearer <access_token>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.0` và `chatgpt-account-id: <account_id>` nếu có. Khi gặp mã `401`, hoặc `403` có `Content-Type` là JSON (`application/json` hoặc `+json`), tiện ích báo lỗi `auth`; nếu `403` không phải JSON (chẳng hạn trang chặn HTML), tiện ích báo lỗi `HTTP 403`.
+2. Gửi `GET https://chatgpt.com/backend-api/wham/usage` với header `Authorization: Bearer <access_token>`, `Accept: application/json`, `User-Agent: ai-quota-bar/0.2.1` và `chatgpt-account-id: <account_id>` nếu có. Khi gặp mã `401`, hoặc `403` có `Content-Type` là JSON (`application/json` hoặc `+json`), tiện ích báo lỗi `auth`; nếu `403` không phải JSON (chẳng hạn trang chặn HTML), tiện ích báo lỗi `HTTP 403`.
 3. Đọc `rate_limit.primary_window` và `rate_limit.secondary_window` trong phản hồi JSON (chấp nhận cả số và chuỗi số hữu hạn cho `used_percent`, `limit_window_seconds`, `reset_at`, `reset_after_seconds`).
 4. Ánh xạ `limit_window_seconds` sang khóa cửa sổ độc lập ngôn ngữ và nhãn hiển thị theo ngôn ngữ: `18000` thành `5h` (`5 giờ`), `604800` thành `weekly` (`Tuần`), thời lượng dương khác thành `other:<seconds>s` (nhãn theo số ngày chẵn, số giờ chẵn hoặc số phút làm tròn), và cửa sổ thiếu `limit_window_seconds` thành `other:primary` hoặc `other:secondary` (nhãn `Giới hạn`).
 5. Chuyển `used_percent` thành phần trăm còn lại (`0-100`, làm tròn xuống) dưới nhãn nhóm `Codex`, kẹp mọi `used_percent > 100` về `0%` còn lại (mức nghiêm trọng). Tính thời điểm reset bằng `reset_at * 1000` nếu có, nếu không thì dùng `now + reset_after_seconds * 1000`.
@@ -70,7 +70,9 @@ Mỗi lần làm mới Antigravity, tiện ích chạy:
 agy --output-format json -p "/usage"
 ```
 
-Lệnh chạy trực tiếp (không qua shell), với tùy chọn ẩn cửa sổ (`windowsHide`), thư mục làm việc là thư mục nhà, biến môi trường `NO_COLOR=1`, giới hạn đầu ra 256 KiB, và `stdin` được đóng ngay. Tiện ích đọc kết quả JSON (trường `command.data.groups`, có tỷ lệ còn lại dạng số thực); nếu thiếu trường đó thì dùng bản văn bản dạng bảng TAB trong trường `response`, nhưng chỉ khi `conversation_id` có mặt và đúng bằng chuỗi rỗng. Ở cả chế độ JSON lẫn bảng TSV, một bucket được ánh xạ sang cửa sổ 5 giờ (`5h`) khi `window === '5h'` hoặc khi nhãn của nó (sau khi bỏ đuôi ` Limit Remaining`) khớp biểu thức `/five[\s-]*hour/i` (chấp nhận `Five-Hour`, `Five Hour`, `FiveHour` và các biến thể khoảng trắng hoặc dấu gạch ngang tương tự), ánh xạ sang cửa sổ tuần (`weekly`) khi `window === 'weekly'` hoặc nhãn khớp `/weekly/i`, và ánh xạ sang `other:<nhãn>` trong các trường hợp còn lại. `stdout` phải chứa một đối tượng JSON; khoảng trắng hoặc dòng trắng trước và sau được chấp nhận, còn nội dung khác ngoài JSON thì coi là lỗi.
+Lệnh chạy trực tiếp (không qua shell), với tùy chọn ẩn cửa sổ (`windowsHide`), thư mục làm việc là thư mục nhà, các biến môi trường `NO_COLOR=1` và `AGY_CLI_DISABLE_AUTO_UPDATE=true`, giới hạn đầu ra 256 KiB, và `stdin` được đóng ngay. Tiện ích đọc kết quả JSON (trường `command.data.groups`, có tỷ lệ còn lại dạng số thực); nếu thiếu trường đó thì dùng bản văn bản dạng bảng TAB trong trường `response`, nhưng chỉ khi `conversation_id` có mặt và đúng bằng chuỗi rỗng. Ở cả chế độ JSON lẫn bảng TSV, một bucket được ánh xạ sang cửa sổ 5 giờ (`5h`) khi `window === '5h'` hoặc khi nhãn của nó (sau khi bỏ đuôi ` Limit Remaining`) khớp biểu thức `/five[\s-]*hour/i` (chấp nhận `Five-Hour`, `Five Hour`, `FiveHour` và các biến thể khoảng trắng hoặc dấu gạch ngang tương tự), ánh xạ sang cửa sổ tuần (`weekly`) khi `window === 'weekly'` hoặc nhãn khớp `/weekly/i`, và ánh xạ sang `other:<nhãn>` trong các trường hợp còn lại. `stdout` phải chứa một đối tượng JSON; khoảng trắng hoặc dòng trắng trước và sau được chấp nhận, còn nội dung khác ngoài JSON thì coi là lỗi.
+
+`AGY_CLI_DISABLE_AUTO_UPDATE=true` tắt bộ tự cập nhật của `agy` cho riêng lần gọi này. Nếu không tắt, khi đã quá 15 phút kể từ lần kiểm tra trước, `agy` sinh một tiến trình cập nhật nền không có console, và tiến trình con `agy --version` của nó làm chớp cửa sổ terminal trên Windows (quan sát với `agy` 1.5.18). Giá trị phải là `true`; `1` bị bỏ qua. `agy` vẫn tự cập nhật khi bạn tự chạy.
 
 Số liệu đo trên máy tác giả, Windows 11, `agy` 1.4.12:
 
@@ -96,7 +98,7 @@ Mỗi lần làm mới DeepSeek, tiện ích:
    - Trước hết kiểm tra biến môi trường `DEEPSEEK_API_KEY`.
    - Nếu không có hoặc để rỗng, đọc tệp `~/.codewhale/secrets/secrets.json` (định dạng JSON `{"entries": {"<tên>": "sk-..."}}`), chỉ dùng mục tên `deepseek` (`entries.deepseek`); các mục khác (ví dụ khóa của dịch vụ khác) không bao giờ được đọc hay gửi đi.
    - Nếu cả hai nơi đều không có khóa hợp lệ, tiện ích ghi trạng thái `no-key` (`missing_key`) ngay mà không gọi mạng và **ẩn mục DeepSeek trên thanh trạng thái** thay vì báo lỗi, nên máy không dùng DeepSeek sẽ không thấy gì. Khóa có nhưng bị máy chủ từ chối (HTTP `401`) vẫn báo lỗi `auth` và mục vẫn hiện.
-2. Gửi `GET https://api.deepseek.com/user/balance` với header `Authorization: Bearer <key>`, `Accept: application/json` và `User-Agent: ai-quota-bar/0.2.0`.
+2. Gửi `GET https://api.deepseek.com/user/balance` với header `Authorization: Bearer <key>`, `Accept: application/json` và `User-Agent: ai-quota-bar/0.2.1`.
 3. Phân tích `is_available` và mảng `balance_infos` (`currency`, `total_balance`, `granted_balance`, `topped_up_balance`). Các loại tiền tệ được sắp xếp `USD` (`$`) trước, rồi đến `CNY` (`¥`), rồi các loại tiền tệ khác (`<TIỀN_TỆ> <số_tiền>`), định dạng 2 chữ số thập phân (ví dụ `DeepSeek $10.00` hoặc `DeepSeek $10.00 | ¥50.00`).
 4. Đánh giá mức cảnh báo và trạng thái hết số dư:
    - Khi `is_available` là `false`, `total_balance` bằng `0` (và không có loại tiền tệ nào còn số dư dương), hoặc máy chủ trả về HTTP `402` (`Insufficient Balance`), thanh trạng thái hiện rõ trạng thái hết số dư (`DeepSeek $0.00 (hết số dư)` hoặc `DeepSeek: hết số dư`) kèm màu nền đỏ mức nghiêm trọng (`statusBarItem.errorBackground`).
@@ -161,27 +163,27 @@ cd ai-quota-bar
 npx @vscode/vsce@3.6.0 package
 ```
 
-Lệnh tạo ra tệp `ai-quota-bar-0.2.0.vsix`. Dự án không dùng thư viện npm bên ngoài (chỉ dùng `fetch` toàn cục và các mô-đun `node:*` dựng sẵn), nên không cần chạy `npm install` trước khi đóng gói.
+Lệnh tạo ra tệp `ai-quota-bar-0.2.1.vsix`. Dự án không dùng thư viện npm bên ngoài (chỉ dùng `fetch` toàn cục và các mô-đun `node:*` dựng sẵn), nên không cần chạy `npm install` trước khi đóng gói.
 
-Nếu tải tệp `ai-quota-bar-0.2.0.vsix` dựng sẵn từ bản phát hành trong tương lai, hãy đối chiếu mã băm SHA-256 trước khi cài:
+Nếu tải tệp `ai-quota-bar-0.2.1.vsix` dựng sẵn từ bản phát hành trong tương lai, hãy đối chiếu mã băm SHA-256 trước khi cài:
 
 ```powershell
-Get-FileHash ai-quota-bar-0.2.0.vsix -Algorithm SHA256
+Get-FileHash ai-quota-bar-0.2.1.vsix -Algorithm SHA256
 ```
 
 Cài vào VS Code:
 
 ```powershell
-code --install-extension ai-quota-bar-0.2.0.vsix
+code --install-extension ai-quota-bar-0.2.1.vsix
 ```
 
 Cài vào Antigravity IDE (tệp lệnh nằm ở `%LOCALAPPDATA%\Programs\Antigravity IDE\bin\antigravity-ide.cmd`; nếu thư mục `bin` đó không có trong `PATH` thì gọi bằng đường dẫn đầy đủ):
 
 ```powershell
-antigravity-ide --install-extension ai-quota-bar-0.2.0.vsix
+antigravity-ide --install-extension ai-quota-bar-0.2.1.vsix
 ```
 
-Hoặc trong giao diện của cả hai ứng dụng: khung Extensions, menu `...`, chọn "Install from VSIX...", rồi chọn tệp `ai-quota-bar-0.2.0.vsix`.
+Hoặc trong giao diện của cả hai ứng dụng: khung Extensions, menu `...`, chọn "Install from VSIX...", rồi chọn tệp `ai-quota-bar-0.2.1.vsix`.
 
 Sau khi cài `ai-quota-bar`, hãy gỡ hoặc tắt `XXLC.agy-quota-bar` và tắt các tiện ích xem quota Claude Code, Codex hoặc Antigravity riêng lẻ để tránh gọi API trùng lặp và tránh hiện hai mục trùng nhau trên thanh trạng thái.
 

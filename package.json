@@ -2,7 +2,7 @@
   "name": "ai-quota-bar",
   "displayName": "%extension.name%",
   "description": "%extension.description%",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "XXLC",
   "repository": {
     "type": "git",

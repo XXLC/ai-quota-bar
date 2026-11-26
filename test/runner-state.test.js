@@ -24,7 +24,7 @@ test('Không tìm thấy và từ chối cmd hoặc bat',()=>{
  assert.equal(resolveAgy({platform:'linux',env:{LOCALAPPDATA:'x'},exists:()=>false}).error.type,'not-found');
 });
 test('D8, đóng stdin, thành công, không ghi đầu ra thô',async()=>{
- const h=harness();const result=h.runner.run({});const call=h.calls[0];assert.deepEqual(call.args,['--output-format','json','-p','/usage']);assert.equal(call.opts.windowsHide,true);assert.equal(call.opts.cwd,'/nhà');assert.equal(call.opts.maxBuffer,262144);assert.equal(call.opts.encoding,'utf8');assert.equal(call.opts.env.NO_COLOR,'1');assert.equal(h.child.stdin.ended,true);
+ const h=harness();const result=h.runner.run({});const call=h.calls[0];assert.deepEqual(call.args,['--output-format','json','-p','/usage']);assert.equal(call.opts.windowsHide,true);assert.equal(call.opts.cwd,'/nhà');assert.equal(call.opts.maxBuffer,262144);assert.equal(call.opts.encoding,'utf8');assert.equal(call.opts.env.NO_COLOR,'1');assert.equal(call.opts.env.AGY_CLI_DISABLE_AUTO_UPDATE,'true');assert.equal(h.child.stdin.ended,true);
  h.finish(null,response,'');assert.equal((await result).buckets.length,1);assert.ok(h.logs.every(s=>!s.includes(response)));
 });
 test('Chia sẻ Promise và chạy lại sau khi xong',async()=>{

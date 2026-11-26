@@ -111,7 +111,10 @@ function createRunner({execFile, exists, homedir, env = process.env, platform = 
       child = execFile(cached, ['--output-format', 'json', '-p', '/usage'], {
         windowsHide: true,
         ...(platform === 'win32' ? {} : {detached: true}),
-        cwd: homedir(), maxBuffer: 256 * 1024, encoding: 'utf8', env: {...env, NO_COLOR: '1'}
+        cwd: homedir(), maxBuffer: 256 * 1024, encoding: 'utf8',
+        // Tiến trình tự cập nhật của agy không có console nên trên Windows nó làm chớp cửa sổ.
+        // agy chỉ nhận giá trị "true" (đã thử "1" trên bản 1.5.18: vẫn cập nhật).
+        env: {...env, NO_COLOR: '1', AGY_CLI_DISABLE_AUTO_UPDATE: 'true'}
       }, (error, stdout = '', stderr = '') => {
         if (done || stopping) return;
         if (error?.code === 'ENOENT') {
